@@ -83,6 +83,7 @@ function syncNotificationOutline(){
  rect.setAttribute('x','1');rect.setAttribute('y','1');
  rect.setAttribute('width',String(Math.max(0,w-2)));rect.setAttribute('height',String(Math.max(0,h-2)));
  rect.setAttribute('rx',String(Math.min(5,(w-2)/2,(h-2)/2)));
+ rect.removeAttribute('pathLength');
 }
 if(typeof ResizeObserver==='function')new ResizeObserver(syncNotificationOutline).observe(notification);
 window.addEventListener('resize',syncNotificationOutline);
@@ -112,7 +113,8 @@ function widgets(value){
   const started=performance.now();
   function drawCountdown(now){
    const left=Math.max(0,remaining-(now-started))/3000;
-   progress.style.strokeDasharray=(100*(1-left))+' 100';
+   const perimeter=progress.getTotalLength();
+   progress.style.strokeDasharray=(perimeter*(1-left))+'px '+(perimeter+1)+'px';
    progress.style.strokeDashoffset='0';
    progressAnimation=left>0&&!notification.hidden?requestAnimationFrame(drawCountdown):null;
   }
