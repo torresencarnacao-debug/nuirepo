@@ -112,8 +112,8 @@ function widgets(value){
   const started=performance.now();
   function drawCountdown(now){
    const left=Math.max(0,remaining-(now-started))/3000;
-   progress.style.strokeDasharray=(100*left)+' 100';
-   progress.style.strokeDashoffset=String(-100*(1-left));
+   progress.style.strokeDasharray=(100*(1-left))+' 100';
+   progress.style.strokeDashoffset='0';
    progressAnimation=left>0&&!notification.hidden?requestAnimationFrame(drawCountdown):null;
   }
   drawCountdown(started);
