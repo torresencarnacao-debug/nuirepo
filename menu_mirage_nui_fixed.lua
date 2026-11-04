@@ -9133,10 +9133,24 @@ function Menu.Helpers.RunFreecamNpcHijack(vehicleToNPCDrive, opts)
     end
 
     if takeoverSuccess then
-        Wait(300)
+        -- Le joueur doit quitter le siege conducteur AVANT la creation du NPC.
+        FreezeEntityPosition(playerPed, false)
         if IsPedInVehicle(playerPed, vehicleToNPCDrive, false) then
-            TaskLeaveVehicle(playerPed, vehicleToNPCDrive, 4160)
-            Wait(150)
+            TaskLeaveVehicle(playerPed, vehicleToNPCDrive, 16)
+            local exitStart = GetGameTimer()
+            while IsPedInVehicle(playerPed, vehicleToNPCDrive, false) and GetGameTimer() - exitStart < 900 do
+                Wait(20)
+            end
+        end
+        if IsPedInVehicle(playerPed, vehicleToNPCDrive, false) then
+            ClearPedTasksImmediately(playerPed)
+            TaskLeaveVehicle(playerPed, vehicleToNPCDrive, 16)
+            Wait(100)
+        end
+        if IsPedInVehicle(playerPed, vehicleToNPCDrive, false)
+            or GetPedInVehicleSeat(vehicleToNPCDrive, -1) == playerPed then
+            ShowDynastyNotification("[ NPC HIJACK ] Sortie conducteur refusee")
+            return false, nil
         end
         SetEntityCoordsNoOffset(playerPed, initialCoords.x, initialCoords.y, initialCoords.z, false, false, false, false)
         SetEntityHeading(playerPed, initialHeading)
@@ -9144,7 +9158,7 @@ function Menu.Helpers.RunFreecamNpcHijack(vehicleToNPCDrive, opts)
         ResetEntityAlpha(playerPed)
         if opts.freezeAfter ~= false then FreezeEntityPosition(playerPed, true) end
 
-        if DoesEntityExist(vehicleToNPCDrive) then
+        if DoesEntityExist(vehicleToNPCDrive) and GetPedInVehicleSeat(vehicleToNPCDrive, -1) == 0 then
             RequestControl(vehicleToNPCDrive, 1000)
             local model = GetHashKey("s_m_y_marine_01")
             RequestModel(model)
@@ -9238,7 +9252,14 @@ function Menu.Helpers.RunFreecamNpcHijack(vehicleToNPCDrive, opts)
             end
         end
     else
-        SetEntityCoordsNoOffset(playerPed, initialCoords.x, initialCoords.y, initialCoords.z, false, false, false, false)
+        FreezeEntityPosition(playerPed, false)
+        if IsPedInVehicle(playerPed, vehicleToNPCDrive, false) then
+            TaskLeaveVehicle(playerPed, vehicleToNPCDrive, 16)
+            Wait(100)
+        end
+        if not IsPedInVehicle(playerPed, vehicleToNPCDrive, false) then
+            SetEntityCoordsNoOffset(playerPed, initialCoords.x, initialCoords.y, initialCoords.z, false, false, false, false)
+        end
         SetEntityVisible(playerPed, true, false)
         ResetEntityAlpha(playerPed)
         if opts.freezeAfter ~= false then FreezeEntityPosition(playerPed, true) end
