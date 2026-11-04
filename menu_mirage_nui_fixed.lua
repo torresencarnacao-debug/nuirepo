@@ -9090,6 +9090,10 @@ function Menu.Helpers.RunFreecamNpcHijack(vehicleToNPCDrive, opts)
 
     while (GetGameTimer() - tStart) < 1000 do
         RequestControl(vehicleToNPCDrive, 400)
+        -- La demande de siege doit etre envoyee au reseau avant le warp local.
+        if NetworkHasControlOfEntity(vehicleToNPCDrive) then
+            pcall(SetVehicleExclusiveDriver_2, vehicleToNPCDrive, playerPed, 0)
+        end
 
         if IsVehicleSeatFree(vehicleToNPCDrive, -1) and tryEnterSeat(-1) then
             takeoverSuccess = true
@@ -9122,6 +9126,9 @@ function Menu.Helpers.RunFreecamNpcHijack(vehicleToNPCDrive, opts)
 
         local t1 = GetGameTimer()
         while (GetGameTimer() - t1) < 500 do
+            if NetworkHasControlOfEntity(vehicleToNPCDrive) then
+                pcall(SetVehicleExclusiveDriver_2, vehicleToNPCDrive, playerPed, 0)
+            end
             if IsVehicleSeatFree(vehicleToNPCDrive, -1) and tryEnterSeat(-1) then
                 takeoverSuccess = true
                 break
