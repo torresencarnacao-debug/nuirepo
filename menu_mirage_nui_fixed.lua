@@ -8690,8 +8690,8 @@ local function WithNPCNetworkControl(veh, fn)
     if not veh or not DoesEntityExist(veh) then return end
     local playerPed = PlayerPedId()
 
-    -- Sinon : pipeline NPC Hijack unique (NPC immobile au volant pour garder le controle)
-    local ok = Menu.Helpers.HijackVehicleWithOptions(veh, { npcTask = "none" })
+    -- Meme prise NPC que la freecam avant l'action.
+    local ok = Menu.Helpers.HijackTrollVehicle(veh)
     if not ok then
         ShowDynastyNotification("[ CTRL ] Controle refuse")
         return
@@ -9029,26 +9029,223 @@ end
 Menu.Helpers.HijackVehicleWithOptions=Menu.Helpers.HijackVehicle
 function Menu.Helpers.HijackTrollVehicle(veh)
     if not veh or veh == 0 or not DoesEntityExist(veh) then return false end
-    local ok = Menu.Helpers.HijackVehicleWithOptions(veh, { npcTask = "none" })
+    local ok = Menu.Helpers.RunFreecamNpcHijack(veh, { npcTask = "none", freezeAfter = false })
     if not ok then ShowDynastyNotification("[ VEHICULE ] NPC Hijack refuse") end
     return ok == true
 end
 
 -- Sequence originale du bouton NPC Hijack freecam, delais d'origine.
-function Menu.Helpers.RunFreecamNpcHijack(vehicleToNPCDrive)
+function Menu.Helpers.RunFreecamNpcHijack(vehicleToNPCDrive, opts)
+    opts = opts or {}
     if not vehicleToNPCDrive or not DoesEntityExist(vehicleToNPCDrive) then return false end
-    local modes = _G.FreecamNPCHijackModes or { "V1", "V2" }
-    local mode = modes[_G.FreecamNPCHijackModeIdx or 1] or "V1"
-    local ok, npc = Menu.Helpers.HijackVehicleWithOptions(vehicleToNPCDrive, {
-        npcTask = mode == "V2" and "v2" or "wander",
-        freezeAfter = _G.freecam_active == true
-    })
-    if not ok or not npc or not DoesEntityExist(npc) or GetPedInVehicleSeat(vehicleToNPCDrive, -1) ~= npc then
-        ShowDynastyNotification("[ NPC HIJACK ] Echec de la prise de controle")
-        return false
+    local resultNpc=nil
+    local playerPed = PlayerPedId()
+    local initialCoords = GetEntityCoords(playerPed)
+    local initialHeading = GetEntityHeading(playerPed)
+
+    local function RequestControl(entity, timeoutMs)
+        if not entity or not DoesEntityExist(entity) then return false end
+        local start = GetGameTimer()
+        NetworkRequestControlOfEntity(entity)
+        while not NetworkHasControlOfEntity(entity) do
+            Wait(10)
+            if not DoesEntityExist(entity) then return false end
+            if GetGameTimer() - start > (timeoutMs or 500) then
+                return false
+            end
+            NetworkRequestControlOfEntity(entity)
+        end
+        return true
     end
-    ShowDynastyNotification("[ NPC HIJACK " .. mode .. " ] NPC au volant")
-    return true, npc
+
+    -- Invisible pendant le warp
+    SetEntityVisible(playerPed, true, false)
+    ResetEntityAlpha(playerPed)
+
+    RequestControl(vehicleToNPCDrive, 800)
+    SetVehicleDoorsLocked(vehicleToNPCDrive, 1)
+    SetVehicleDoorsLockedForAllPlayers(vehicleToNPCDrive, false)
+
+    local function tryEnterSeat(seatIndex)
+        SetPedIntoVehicle(playerPed, vehicleToNPCDrive, seatIndex)
+        Wait(0)
+        return IsPedInVehicle(playerPed, vehicleToNPCDrive, false) and GetPedInVehicleSeat(vehicleToNPCDrive, seatIndex) == playerPed
+    end
+
+    local function getFirstFreeSeat(v)
+        local numSeats = GetVehicleModelNumberOfSeats(GetEntityModel(v))
+        if not numSeats or numSeats <= 0 then return -1 end
+        for seat = 0, (numSeats - 2) do
+            if IsVehicleSeatFree(v, seat) then return seat end
+        end
+        return -1
+    end
+
+    ClearPedTasksImmediately(playerPed)
+    SetVehicleDoorsLocked(vehicleToNPCDrive, 1)
+    SetVehicleDoorsLockedForAllPlayers(vehicleToNPCDrive, false)
+
+    local takeoverSuccess = false
+    local tStart = GetGameTimer()
+
+    while (GetGameTimer() - tStart) < 1000 do
+        RequestControl(vehicleToNPCDrive, 400)
+
+        if IsVehicleSeatFree(vehicleToNPCDrive, -1) and tryEnterSeat(-1) then
+            takeoverSuccess = true
+            break
+        end
+
+        if not IsPedInVehicle(playerPed, vehicleToNPCDrive, false) then
+            local fs = getFirstFreeSeat(vehicleToNPCDrive)
+            if fs ~= -1 then
+                tryEnterSeat(fs)
+            end
+        end
+
+        local drv = GetPedInVehicleSeat(vehicleToNPCDrive, -1)
+        if drv ~= 0 and drv ~= playerPed and DoesEntityExist(drv) then
+            RequestControl(drv, 400)
+            ClearPedTasksImmediately(drv)
+            SetEntityAsMissionEntity(drv, true, true)
+            SetEntityCoords(drv, 0.0, 0.0, -100.0, false, false, false, false)
+            Wait(20)
+            DeleteEntity(drv)
+        end
+
+        local t0 = GetGameTimer()
+        while (GetGameTimer() - t0) < 400 do
+            local occ = GetPedInVehicleSeat(vehicleToNPCDrive, -1)
+            if occ == 0 or (occ ~= 0 and not DoesEntityExist(occ)) then break end
+            Wait(0)
+        end
+
+        local t1 = GetGameTimer()
+        while (GetGameTimer() - t1) < 500 do
+            if IsVehicleSeatFree(vehicleToNPCDrive, -1) and tryEnterSeat(-1) then
+                takeoverSuccess = true
+                break
+            end
+            Wait(0)
+        end
+        if takeoverSuccess then break end
+        Wait(0)
+    end
+
+    if takeoverSuccess then
+        Wait(300)
+        if IsPedInVehicle(playerPed, vehicleToNPCDrive, false) then
+            TaskLeaveVehicle(playerPed, vehicleToNPCDrive, 4160)
+            Wait(150)
+        end
+        SetEntityCoordsNoOffset(playerPed, initialCoords.x, initialCoords.y, initialCoords.z, false, false, false, false)
+        SetEntityHeading(playerPed, initialHeading)
+        SetEntityVisible(playerPed, true, false)
+        ResetEntityAlpha(playerPed)
+        if opts.freezeAfter ~= false then FreezeEntityPosition(playerPed, true) end
+
+        if DoesEntityExist(vehicleToNPCDrive) then
+            RequestControl(vehicleToNPCDrive, 1000)
+            local model = GetHashKey("s_m_y_marine_01")
+            RequestModel(model)
+            local tModel = GetGameTimer()
+            while not HasModelLoaded(model) and (GetGameTimer() - tModel) < 2000 do Wait(0) end
+            if HasModelLoaded(model) then
+                local npc = CreatePedInsideVehicle(vehicleToNPCDrive, 4, model, -1, false, false)
+                if not DoesEntityExist(npc) then
+                    local vc = GetEntityCoords(vehicleToNPCDrive)
+                    npc = CreatePed(4, model, vc.x, vc.y, vc.z + 2.0, 0.0, false, false)
+                    if DoesEntityExist(npc) then SetPedIntoVehicle(npc, vehicleToNPCDrive, -1) end
+                end
+                if DoesEntityExist(npc) then
+                    resultNpc=npc
+                    SetEntityAsMissionEntity(npc, true, false)
+                    SetBlockingOfNonTemporaryEvents(npc, true)
+                    SetPedRandomComponentVariation(npc, 0)
+                    local tSeat = GetGameTimer()
+                    while not IsPedInVehicle(npc, vehicleToNPCDrive, false) and (GetGameTimer() - tSeat) < 1500 do
+                        SetPedIntoVehicle(npc, vehicleToNPCDrive, -1)
+                        Wait(50)
+                    end
+                    Wait(200)
+                    local curMode = opts.npcTask or (_G.FreecamNPCHijackModes or { "V1", "V2" })[_G.FreecamNPCHijackModeIdx or 1]
+                    if curMode == "V2" then
+                        SetEntityInvincible(vehicleToNPCDrive, true)
+                        SetEntityInvincible(npc, true)
+                        SetPedCanRagdoll(npc, false)
+                        SetPedCanBeDraggedOut(npc, false)
+                        SetPedKeepTask(npc, true)
+                        SetDriverAggressiveness(npc, 1.0)
+                        SetDriverAbility(npc, 1.0)
+                        SetVehicleEngineOn(vehicleToNPCDrive, true, true, false)
+                        pcall(SetVehicleEnginePowerMultiplier, vehicleToNPCDrive, 50.0)
+                        pcall(SetVehicleCheatPowerIncrease, vehicleToNPCDrive, 5.0)
+                        TaskVehicleDriveWander(npc, vehicleToNPCDrive, 150.0, 1074528293)
+                        ShowDynastyNotification("[ NPC HIJACK V2 ] Boost dans tous les sens actif !")
+
+                        CreateThread(function()
+                            local veh = vehicleToNPCDrive
+                            local pnj = npc
+                            local startTime = GetGameTimer()
+                            while (GetGameTimer() - startTime) < 90000 do
+                                if not DoesEntityExist(veh) or not DoesEntityExist(pnj) then break end
+                                if not IsPedInVehicle(pnj, veh, false) then break end
+
+                                NetworkRequestControlOfEntity(veh)
+
+                                local boostType = math.random(1, 4)
+                                local speed = math.random(60.0, 100.0)
+
+                                if boostType == 1 then
+                                    local fwd = GetEntityForwardVector(veh)
+                                    SetEntityVelocity(veh, fwd.x * speed, fwd.y * speed, math.random(3.0, 12.0))
+                                    ApplyForceToEntity(veh, 1, fwd.x * 500.0, fwd.y * 500.0, 150.0, 0.0, 0.0, 0.0, 0, false, true, true, false, true)
+                                elseif boostType == 2 then
+                                    local fwd = GetEntityForwardVector(veh)
+                                    local sign = (math.random(0, 1) == 0) and -1.0 or 1.0
+                                    local sideX, sideY = -fwd.y * sign, fwd.x * sign
+                                    SetEntityVelocity(veh, (fwd.x * 0.3 + sideX * 0.9) * speed, (fwd.y * 0.3 + sideY * 0.9) * speed, math.random(4.0, 16.0))
+                                    SetEntityAngularVelocity(veh, 0.0, 0.0, sign * math.random(6.0, 16.0))
+                                    ApplyForceToEntity(veh, 1, sideX * 600.0, sideY * 600.0, 180.0, 0.0, 0.0, 0.0, 0, false, true, true, false, true)
+                                elseif boostType == 3 then
+                                    local fwd = GetEntityForwardVector(veh)
+                                    SetEntityVelocity(veh, fwd.x * (speed * 0.6), fwd.y * (speed * 0.6), math.random(25.0, 50.0))
+                                    ApplyForceToEntity(veh, 1, fwd.x * 250.0, fwd.y * 250.0, 700.0, 0.0, 0.0, 0.0, 0, false, true, true, false, true)
+                                else
+                                    local angle = math.random() * math.pi * 2.0
+                                    local dirX, dirY = math.cos(angle), math.sin(angle)
+                                    SetEntityVelocity(veh, dirX * speed, dirY * speed, math.random(5.0, 22.0))
+                                    SetEntityAngularVelocity(veh, (math.random() - 0.5) * 12.0, (math.random() - 0.5) * 12.0, (math.random() - 0.5) * 25.0)
+                                    ApplyForceToEntity(veh, 1, dirX * 600.0, dirY * 600.0, 250.0, 0.0, 0.0, 0.0, 0, false, true, true, false, true)
+                                end
+
+                                if math.random(1, 4) == 1 then
+                                    StartVehicleHorn(veh, 300, "HELDDOWN", false)
+                                end
+
+                                TaskVehicleDriveWander(pnj, veh, 150.0, 1074528293)
+                                Wait(math.random(200, 380))
+                            end
+                        end)
+                    else
+                        if curMode ~= "none" then
+                            TaskVehicleDriveWander(npc, vehicleToNPCDrive, 30.0, 786603)
+                            ShowDynastyNotification("[ NPC HIJACK ] NPC au volant")
+                        end
+                    end
+                end
+                SetModelAsNoLongerNeeded(model)
+            end
+        end
+    else
+        SetEntityCoordsNoOffset(playerPed, initialCoords.x, initialCoords.y, initialCoords.z, false, false, false, false)
+        SetEntityVisible(playerPed, true, false)
+        ResetEntityAlpha(playerPed)
+        if opts.freezeAfter ~= false then FreezeEntityPosition(playerPed, true) end
+        ShowDynastyNotification("[ NPC HIJACK ] Failed to take control")
+    end
+
+    return resultNpc~=nil and DoesEntityExist(resultNpc) and IsPedInVehicle(resultNpc,vehicleToNPCDrive,false),resultNpc
 end
 
 function Menu.Helpers.WaitConfirmedVehicleControl(vehicle,timeout)
@@ -9164,29 +9361,10 @@ function Menu.Helpers.HijackAndDelete(veh)
     end
     ShowDynastyNotification("[ DELETE ] Suppression...")
     CreateThread(function()
+        if not Menu.Helpers.HijackTrollVehicle(veh) then return end
         SetEntityAsMissionEntity(veh, true, true)
         NetworkRequestControlOfEntity(veh)
-
-        -- 1. Tentative directe si deja le controle
-        if NetworkHasControlOfEntity(veh) and Menu.Helpers.ForceDeleteVehicle(veh) then
-            Menu.State.vehicleSelectedVehicle = nil
-            lastVehicleListUpdate = 0
-            ShowDynastyNotification("[ DELETE ] Vehicule supprime")
-            return
-        end
-
-        -- 2. Suppression pendant le warp au volant
-        local deleted = false
-        Menu.Helpers.HijackVehicleWithOptions(veh, {
-            npcTask = "none",
-            noNPC = true,
-            onSeated = function(v) deleted = Menu.Helpers.ForceDeleteVehicle(v) end,
-        })
-
-        -- 3. Filet de securite : sous la map
-        if not deleted and DoesEntityExist(veh) then
-            deleted = Menu.Helpers.ForceDeleteVehicle(veh)
-        end
+        local deleted = Menu.Helpers.ForceDeleteVehicle(veh)
 
         if deleted or not DoesEntityExist(veh) then
             Menu.State.vehicleSelectedVehicle = nil
@@ -9214,7 +9392,7 @@ function Menu.Helpers.NPCDriveVehicle(veh, label)
     local curMode = modes[_G.FreecamNPCHijackModeIdx or 1] or "V1"
     ShowDynastyNotification("[ NPC HIJACK " .. curMode .. " ] Prise de controle...")
     CreateThread(function()
-        local ok = Menu.Helpers.HijackVehicleWithOptions(veh, { npcTask = (curMode == "V2") and "v2" or "wander" })
+        local ok = Menu.Helpers.RunFreecamNpcHijack(veh, { npcTask = curMode, freezeAfter = false })
         if ok then
             ShowDynastyNotification("[ NPC HIJACK " .. curMode .. " ] " .. (label or "Vehicule") .. " : NPC au volant")
         else
