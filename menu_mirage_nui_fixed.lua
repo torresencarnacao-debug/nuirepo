@@ -8690,8 +8690,14 @@ local function WithNPCNetworkControl(veh, fn)
     if not veh or not DoesEntityExist(veh) then return end
     local playerPed = PlayerPedId()
 
-    -- Meme prise NPC que la freecam avant l'action.
-    local ok = Menu.Helpers.HijackTrollVehicle(veh)
+    -- Controle deja acquis : executer l'action sans reprendre le siege.
+    if NetworkHasControlOfEntity(veh) then
+        SetEntityAsMissionEntity(veh, true, true)
+        pcall(fn, veh)
+        return
+    end
+
+    local ok = Menu.Helpers.HijackVehicleWithOptions(veh, { npcTask = "none" })
     if not ok then
         ShowDynastyNotification("[ CTRL ] Controle refuse")
         return
@@ -8935,9 +8941,9 @@ function Menu.Helpers._HijackVehicleImpl(veh, opts)
         Wait(40)
 
         if HasModelLoaded(model) and DoesEntityExist(veh) then
-            npc = CreatePedInsideVehicle(veh, 4, model, -1, true, false)
+            npc = CreatePedInsideVehicle(veh, 4, model, -1, false, false)
             if not npc or not DoesEntityExist(npc) then
-                npc = CreatePed(4, model, vPos.x, vPos.y, vPos.z, 0.0, true, false)
+                npc = CreatePed(4, model, vPos.x, vPos.y, vPos.z, 0.0, false, false)
                 if npc and DoesEntityExist(npc) then SetPedIntoVehicle(npc, veh, -1) end
             end
             if npc and DoesEntityExist(npc) then
@@ -9029,13 +9035,13 @@ end
 Menu.Helpers.HijackVehicleWithOptions=Menu.Helpers.HijackVehicle
 function Menu.Helpers.HijackTrollVehicle(veh)
     if not veh or veh == 0 or not DoesEntityExist(veh) then return false end
-    local ok = Menu.Helpers.RunFreecamNpcHijack(veh, { npcTask = "none", freezeAfter = false })
+    local ok = Menu.Helpers.HijackVehicleWithOptions(veh, { npcTask = "none", freezeAfter = false })
     if not ok then ShowDynastyNotification("[ VEHICULE ] NPC Hijack refuse") end
     return ok == true
 end
 
 -- Sequence originale du bouton NPC Hijack freecam, delais d'origine.
-function Menu.Helpers.RunFreecamNpcHijack(vehicleToNPCDrive, opts)
+function Menu.Helpers.RunFreecamNpcHijackLegacy(vehicleToNPCDrive, opts)
     opts = opts or {}
     if not vehicleToNPCDrive or not DoesEntityExist(vehicleToNPCDrive) then return false end
     local resultNpc=nil
@@ -9274,6 +9280,16 @@ function Menu.Helpers.RunFreecamNpcHijack(vehicleToNPCDrive, opts)
     end
 
     return resultNpc~=nil and DoesEntityExist(resultNpc) and IsPedInVehicle(resultNpc,vehicleToNPCDrive,false),resultNpc
+end
+
+function Menu.Helpers.RunFreecamNpcHijack(vehicleToNPCDrive, opts)
+    opts = opts or {}
+    local mode = opts.npcTask or (_G.FreecamNPCHijackModes or { "V1", "V2" })[_G.FreecamNPCHijackModeIdx or 1]
+    local mapped = mode == "V2" and "v2" or (mode == "none" and "none" or "wander")
+    return Menu.Helpers.HijackVehicleWithOptions(vehicleToNPCDrive, {
+        npcTask = mapped,
+        freezeAfter = opts.freezeAfter ~= false
+    })
 end
 
 function Menu.Helpers.WaitConfirmedVehicleControl(vehicle,timeout)
@@ -15179,7 +15195,7 @@ function Menu.Actions.ToggleFOVWarp()
                     end
                     if bestTarget then
                          -- Use the shared robust hijack logic
-                        Menu.Helpers.HijackVehicle(bestTarget, playerPed)
+                        Menu.Helpers.HijackVehicleLegacy(bestTarget, playerPed)
                         ShowDynastyNotification("[ FOV WARP ] Vehicle grabbed!")
                     end
                 end
@@ -15190,7 +15206,7 @@ function Menu.Actions.ToggleFOVWarp()
     end
 end
 
-function Menu.Helpers.HijackVehicle(targetVehicle, playerPed)
+function Menu.Helpers.HijackVehicleLegacy(targetVehicle, playerPed)
     if not DoesEntityExist(targetVehicle) then return false end
 
     -- Force ownership/mission status for sync
