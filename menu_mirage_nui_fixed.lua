@@ -26534,6 +26534,168 @@ RegisterCommand("mirage_logo_debug", function()
     Lapsus_LoadLogo_compat()
 end, false)
 
+;(function()
+    local O=Menu.Data.Options
+    local all={}
+    for _,key in ipairs({'EXPLOIT_REDSIDE_WILD','EXPLOIT_REDSIDE_PETS'}) do
+        for _,entry in ipairs(O[key] or {}) do all[#all+1]=entry end
+    end
+    O.EXPLOIT_REDSIDE={{type='submenu',name='Peds',id='redside_peds'}}
+    O.EXPLOIT_REDSIDE_ALL=all
+    local pedGroups={
+        EXPLOIT_REVOLUTION_NATIVE={'a_c_coyote','a_c_husky','a_c_chop','a_c_cat_01','a_c_mtlion','a_c_cow','a_c_pug','a_c_retriever'},
+        EXPLOIT_REVOLUTION_ADDONS={'ppanda','Crocodile','Bobcat','Donkey','Elephant','Lepoard','Malelion','Rangehorse','BrnBear','ft-pbear','ft-penguin'},
+        EXPLOIT_REVOLUTION_STAFF={'rev_m_perso','rev_m_staff'}
+    }
+    O.EXPLOIT_REVOLUTION={{type='submenu',name='Peds',id='revolution_peds'},{type='submenu',name='Companion',id='revolution_companion'}}
+    O.EXPLOIT_REVOLUTION_PEDS={{type='submenu',name='Peds',id='revolution_native'},{type='submenu',name='Addons',id='revolution_addons'},{type='submenu',name='Staff',id='revolution_staff'}}
+    for menu,names in pairs(pedGroups) do
+        O[menu]={}
+        for _,model in ipairs(names) do O[menu][#O[menu]+1]={type='action',name=model,id='revolution_ped',model=model} end
+    end
+    O.EXPLOIT_REVOLUTION_COMPANION={{type='action',name='Retirer les companions',id='revolution_remove'}}
+    local companions={{'Panda','revpanda1'},{'Pingouin','revpingouin1'},{'Koala','revkoala1'},{'Dragon','revdragon1'},
+        {'Chat bleu','revchatbleu1'},{'Aigle','revaigle1'},{'Golden Retriever','revgolden1'},{'Husky','revhusky1'},
+        {'Pitbull','revpitbull1'},{'Shiba','revshiba1'},{'Chiot rottweiler','revchiot1'},{'Rottweiler de police','revchiotpolice'}}
+    for i=1,11 do companions[#companions+1]={'Punch Cat '..i,'punchcat'..i} end
+    local allowed={}
+    for _,pair in ipairs(companions) do
+        local model=pair[2]
+        O.EXPLOIT_REVOLUTION_COMPANION[#O.EXPLOIT_REVOLUTION_COMPANION+1]={type='action',name=pair[1],id='revolution_spawn',model=model}
+        allowed[GetHashKey(model)]=true
+    end
+    local previousVip=Menu.Helpers.GetVipOptions
+    Menu.Helpers.GetVipOptions=function(...)
+        local rows=previousVip(...)
+        local found=false
+        for _,entry in ipairs(rows) do if entry.id=='exploit_revolution' then found=true end end
+        if not found then
+            for i,entry in ipairs(rows) do if entry.id=='exploit_redside' then table.insert(rows,i+1,{type='submenu',name='Revolution',id='exploit_revolution'});break end end
+        end
+        return rows
+    end
+    local previousCategory=Menu.Helpers.IsExploitCategory
+    Menu.Helpers.IsExploitCategory=function(menu)
+        return previousCategory(menu) or menu=='EXPLOIT_REDSIDE_ALL' or menu=='EXPLOIT_REVOLUTION' or
+            menu=='EXPLOIT_REVOLUTION_PEDS' or menu=='EXPLOIT_REVOLUTION_NATIVE' or menu=='EXPLOIT_REVOLUTION_ADDONS' or
+            menu=='EXPLOIT_REVOLUTION_STAFF' or menu=='EXPLOIT_REVOLUTION_COMPANION'
+    end
+    local previousBack=Menu.Actions.HandleBackNavigation
+    Menu.Actions.HandleBackNavigation=function(...)
+        local parent={EXPLOIT_REDSIDE_ALL='EXPLOIT_REDSIDE',EXPLOIT_REVOLUTION_PEDS='EXPLOIT_REVOLUTION',
+            EXPLOIT_REVOLUTION_COMPANION='EXPLOIT_REVOLUTION',EXPLOIT_REVOLUTION_NATIVE='EXPLOIT_REVOLUTION_PEDS',
+            EXPLOIT_REVOLUTION_ADDONS='EXPLOIT_REVOLUTION_PEDS',EXPLOIT_REVOLUTION_STAFF='EXPLOIT_REVOLUTION_PEDS'}
+        local nextMenu=parent[Menu.State.currentMenu]
+        if nextMenu then Menu.State.currentMenu=nextMenu;Menu.State.selectedOption,Menu.State.startIndex=1,1;return end
+        return previousBack(...)
+    end
+    local busy=false
+    local function notify(message) ShowDynastyNotification('[ REVOLUTION ] '..message) end
+    local function loadModel(name,asPed)
+        local hash=GetHashKey(name)
+        if not IsModelInCdimage(hash) or not IsModelValid(hash) or (asPed and not IsModelAPed(hash)) then
+            return nil,'Modele indisponible : '..name
+        end
+        RequestModel(hash)
+        local started=GetGameTimer()
+        while not HasModelLoaded(hash) and GetGameTimer()-started<5000 do Wait(0) end
+        if not HasModelLoaded(hash) then SetModelAsNoLongerNeeded(hash);return nil,'Chargement expire : '..name end
+        return hash
+    end
+    local function run(action,name)
+        if busy then notify('Chargement deja en cours');return end
+        busy=true
+        CreateThread(function()
+            local ok,err=pcall(function()
+                while not NetworkIsPlayerActive(PlayerId()) do Wait(100) end
+                local model,reason=loadModel(name,action=='ped')
+                if not model then notify(reason);return end
+                if action=='ped' then
+                    SetPlayerModel(PlayerId(),model)
+                    SetModelAsNoLongerNeeded(model)
+                    notify('Ped applique : '..name)
+                else
+                    local player=PlayerPedId()
+                    local pos=GetEntityCoords(player)
+                    local object=CreateObjectNoOffset(model,pos.x,pos.y,pos.z,false,false,false)
+                    SetModelAsNoLongerNeeded(model)
+                    if not object or object==0 or not DoesEntityExist(object) then notify('Creation impossible : '..name);return end
+                    SetEntityCollision(object,false,false)
+                    AttachEntityToEntity(object,player,GetPedBoneIndex(player,10706),0.18,-0.08,-0.06,0.0,0.0,180.0,false,false,false,false,2,true)
+                    notify('Companion ajoute : '..name)
+                end
+            end)
+            busy=false
+            if not ok then print('[REVOLUTION] '..tostring(err));notify('Erreur : voir F8') end
+        end)
+    end
+    local function removeCompanions()
+        local player=PlayerPedId()
+        local count=0
+        for _,object in ipairs(GetGamePool('CObject')) do
+            if DoesEntityExist(object) and IsEntityAttachedToEntity(object,player) and allowed[GetEntityModel(object)] then
+                DetachEntity(object,true,true)
+                DeleteEntity(object)
+                count=count+1
+            end
+        end
+        notify('Companions retires : '..count)
+    end
+    if type(AddEventHandler)=='function' then
+        AddEventHandler('onClientResourceStop',function(resource)
+            if resource~=GetCurrentResourceName() then return end
+            local player=PlayerPedId()
+            if not player or player==0 then return end
+            for _,object in ipairs(GetGamePool('CObject')) do
+                if DoesEntityExist(object) and IsEntityAttachedToEntity(object,player) and allowed[GetEntityModel(object)] then
+                    DetachEntity(object,true,true)
+                    DeleteEntity(object)
+                end
+            end
+        end)
+    end
+    local previousAction=ExecuteMenuAction
+    ExecuteMenuAction=function(menu,index,...)
+        menu=menu or Menu.State.currentMenu
+        index=index or Menu.State.selectedOption
+        local choice=(Menu.Helpers.GetFullListForMenu(menu) or {})[index]
+        if choice and choice.id then
+            local destinations={exploit_revolution='EXPLOIT_REVOLUTION',redside_peds='EXPLOIT_REDSIDE_ALL',
+                revolution_peds='EXPLOIT_REVOLUTION_PEDS',revolution_companion='EXPLOIT_REVOLUTION_COMPANION',
+                revolution_native='EXPLOIT_REVOLUTION_NATIVE',revolution_addons='EXPLOIT_REVOLUTION_ADDONS',
+                revolution_staff='EXPLOIT_REVOLUTION_STAFF'}
+            if destinations[choice.id] then
+                Menu.State.currentMenu=destinations[choice.id]
+                Menu.State.selectedOption,Menu.State.startIndex=1,1
+                return
+            elseif choice.id=='revolution_ped' then run('ped',choice.model);return
+            elseif choice.id=='revolution_spawn' then run('companion',choice.model);return
+            elseif choice.id=='revolution_remove' then removeCompanions();return end
+        end
+        return previousAction(menu,index,...)
+    end
+    local previousSnapshot=Menu.Helpers.BuildNuiSnapshot
+    if previousSnapshot then
+        Menu.Helpers.BuildNuiSnapshot=function(...)
+            local state=previousSnapshot(...)
+            local titles={EXPLOIT_REDSIDE='Redside',EXPLOIT_REDSIDE_ALL='Redside - Peds',
+                EXPLOIT_REVOLUTION='Revolution',EXPLOIT_REVOLUTION_PEDS='Revolution - Peds',
+                EXPLOIT_REVOLUTION_NATIVE='Revolution - Peds',EXPLOIT_REVOLUTION_ADDONS='Revolution - Addons',
+                EXPLOIT_REVOLUTION_STAFF='Revolution - Staff',EXPLOIT_REVOLUTION_COMPANION='Revolution - Companion'}
+            state.title=titles[state.menu] or state.title
+            if state.menu=='EXPLOIT' or state.menu=='EXPLOIT_REDSIDE' or state.menu=='EXPLOIT_REVOLUTION' then
+                for _,row in ipairs(state.rows) do
+                    if row.label=='Redside' or row.label=='Revolution' or
+                       (state.menu=='EXPLOIT_REDSIDE' and row.label=='Peds') then
+                        row.badge=nil;row.selector=nil
+                    end
+                end
+            end
+            return state
+        end
+    end
+end)()
+
 -- Bridge d'affichage NUI : conserve les entrees clavier et les actions du script.
 ;(function()
 local base=_G.MirageNuiBaseUrl
@@ -26875,6 +27037,27 @@ function Menu.Helpers.BuildNuiSnapshot()
         help={previous=_G.freecam_layout==2 and 'Q' or 'A'}
     }
 end
+;(function()
+    local original=Menu.Helpers.BuildNuiSnapshot
+    Menu.Helpers.BuildNuiSnapshot=function(...)
+        local state=original(...)
+        local titles={EXPLOIT_REDSIDE='Redside',EXPLOIT_REDSIDE_ALL='Redside - Peds',
+            EXPLOIT_REVOLUTION='Revolution',EXPLOIT_REVOLUTION_PEDS='Revolution - Peds',
+            EXPLOIT_REVOLUTION_NATIVE='Revolution - Peds',EXPLOIT_REVOLUTION_ADDONS='Revolution - Addons',
+            EXPLOIT_REVOLUTION_STAFF='Revolution - Staff',EXPLOIT_REVOLUTION_COMPANION='Revolution - Companion'}
+        state.title=titles[state.menu] or state.title
+        if state.menu=='EXPLOIT' or state.menu=='EXPLOIT_REDSIDE' then
+            for _,row in ipairs(state.rows) do
+                if row.label=='Redside' or row.label=='Revolution' or
+                   (state.menu=='EXPLOIT_REDSIDE' and row.label=='Peds') then
+                    row.badge=nil;row.selector=nil
+                end
+            end
+        end
+        return state
+    end
+end)()
+
 -- Widgets exportes depuis les memes donnees que les anciens HUD.
 local toastSerial=0
 local originalNotification=ShowDynastyNotification
@@ -27039,7 +27222,7 @@ Citizen.CreateThread(function()
         local now=GetGameTimer()
         if not opened and now-lastOpen>=3000 and type(Lapsus)=='table' and type(Lapsus.CreateNui)=='function' then
             lastOpen=now
-            local ok,accepted=pcall(Lapsus.CreateNui,'mirage_live_menu',base..'/index.html?transport=direct&v=26-redside')
+            local ok,accepted=pcall(Lapsus.CreateNui,'mirage_live_menu',base..'/index.html?transport=direct&v=27-revolution')
             opened=ok and accepted==true
         end
         if opened and type(json)=='table' and type(json.encode)=='function' then

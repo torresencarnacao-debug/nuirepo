@@ -15,3 +15,9 @@ Load the updated Lua after deploying the NUI. Selecting a model requests it,
 waits up to eight seconds, and applies it with `SetPlayerModel`. Custom models
 must be available on the game server. The NUI displays the category counts and
 Redside titles; the page and renderer use cache version `26-redside`.
+
+The revised Exploit menu shows **Redside > Peds** without a count beside Redside.
+**Revolution > Peds** contains native, addon, and staff models. **Revolution >
+Companion** contains the supplied companions, all 11 Punch Cat models, and an
+action to remove matching companions attached to the local player. Custom models
+must be available in the game. The NUI uses cache version `27-revolution`.
