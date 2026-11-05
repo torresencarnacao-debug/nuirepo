@@ -1829,6 +1829,7 @@ function Menu.Helpers.ShortNotification(value)
     local category,body=text:match('^%s*%[%s*(.-)%s*%]%s*(.*)$')
     category=category and category:match('^%s*(.-)%s*$')
     body=(body or text):match('^%s*(.-)%s*$')
+    if category and category:upper()=='REDSIDE' then return category .. ' : ' .. body end
     local generic={AC=true,SESSION=true,PED=true,CONFIG=true,BIND=true,ERREUR=true,STYLE=true,VEHICLE=true,TELEPORT=true}
     local lower=body:lower()
     local label=category and not generic[category:upper()] and category or nil
@@ -3473,6 +3474,12 @@ function Menu.Actions.HandleMenuSelection()
 end
 
 function Menu.Actions.HandleBackNavigation()
+    if Menu.State.currentMenu=="EXPLOIT_REDSIDE_WILD" or Menu.State.currentMenu=="EXPLOIT_REDSIDE_PETS" then
+        local selected = Menu.State.currentMenu=="EXPLOIT_REDSIDE_WILD" and 1 or 2
+        Menu.State.currentMenu="EXPLOIT_REDSIDE"
+        Menu.State.selectedOption,Menu.State.startIndex=selected,1
+        return
+    end
     if Menu.Helpers.IsExploitCategory(Menu.State.currentMenu) then
         Menu.State.currentMenu="EXPLOIT"
         Menu.State.selectedOption,Menu.State.startIndex=1,1
@@ -7249,6 +7256,7 @@ function Menu.Helpers.GetVipOptions()
         {type="separator",name="Custom"},
         {type="submenu",name="Putin",id="exploit_putin"},
         {type="submenu",name="Seed",id="exploit_seed"},
+        {type="submenu",name="Redside",id="exploit_redside"},
         {type="submenu",name="WaveShield",id="exploit_waveshield"},
         {type="submenu",name="Electron AC",id="exploit_electron"},
         {type="action",name="Anticheat Checker",id="misc_anticheat"},
@@ -7275,8 +7283,81 @@ Menu.Data.Options.EXPLOIT_SEED={
 }
 Menu.Data.Options.EXPLOIT_WAVESHIELD={{type="info",name="No options yet"}}
 Menu.Data.Options.EXPLOIT_ELECTRON={{type="info",name="No options yet"}}
+-- Redside: change the local player's model using the supplied ped catalog.
+;(function()
+    Menu.Data.Options.EXPLOIT_REDSIDE = {
+        {type='submenu', name='Animaux sauvages et fantastiques', id='redside_group', destination='EXPLOIT_REDSIDE_WILD'},
+        {type='submenu', name='Chiens, chats et renards', id='redside_group', destination='EXPLOIT_REDSIDE_PETS'},
+    }
+    local groups = {
+        EXPLOIT_REDSIDE_WILD = {
+            'ft-bighorn', 'ft_horse', 'a_c_horse_police', 'ft-lion', 'FT_Bengala',
+            'elephant', 'pronghorn_antelope', 'eagle', 'kangaroo', 'ft-lwolf',
+            'ft-wolfhound', 'FT_Wolf', 'ft-pdoberman', 'pw_djarot', 'ft-capmonkey2',
+            'ft-hyena', 'ft-penguin', 'ft-cerberus', 'ft-ppanda', 'ft-bptiger', 'ft-zombied',
+        },
+        EXPLOIT_REDSIDE_PETS = {
+            'corgi', 'abdog', 'fox2', 'ft_malinois', 'ft-labrador', 'ft-dobermanv2',
+            'riley', 'ft-pterrier', 'ft-pitbull2', 'golden_r', 'k9_husky', 'ft-pboxer',
+            'beagle', 'ft-pfox', 'russel', 'ft-shepk9', 'ft-labrak9', 'ft-phuskyk9',
+            'yorkshire', 'ft-shiba', 'ft-pretriever', 'ft-dalma', 'ft-phusky',
+            'ft-pshepherd', 'ft-bulldogBIG', 'ft-pbulldog2', 'ft-pbulldog',
+            'ft-abulldog', 'ft-pitbull', 'dalmatian', 'a_c_pitbull', 'ft-boxer',
+            'bshorthair', 'akita_inu', 'bernard', 'ft-bloodhound', 'ft-aushep',
+            'ft-prottweiler', 'ft-sphynx',
+        },
+    }
+    for menu, models in pairs(groups) do
+        local rows = {}
+        for _, model in ipairs(models) do
+            rows[#rows + 1] = {type='action', name=model, id='redside_ped', model=model}
+        end
+        Menu.Data.Options[menu] = rows
+    end
+end)()
+
+function Menu.Actions.ApplyRedsidePed(modelName)
+    if Menu.State.redsideModelLoading then
+        ShowDynastyNotification('[ REDSIDE ] Chargement deja en cours')
+        return
+    end
+    Menu.State.redsideModelLoading = true
+    CreateThread(function()
+        local model
+        local ok, message = pcall(function()
+            model = GetHashKey(modelName)
+            if not IsModelInCdimage(model) or not IsModelValid(model) or not IsModelAPed(model) then
+                return 'Modele ped indisponible : ' .. modelName
+            end
+            RequestModel(model)
+            local started = GetGameTimer()
+            while not HasModelLoaded(model) do
+                if GetGameTimer() - started >= 8000 then
+                    return 'Chargement expire : ' .. modelName
+                end
+                Wait(0)
+            end
+            SetPlayerModel(PlayerId(), model)
+            Wait(0)
+            local ped = PlayerPedId()
+            if not DoesEntityExist(ped) or GetEntityModel(ped) ~= model then
+                return 'Changement non confirme : ' .. modelName
+            end
+            return 'Ped applique : ' .. modelName
+        end)
+        if model then pcall(SetModelAsNoLongerNeeded, model) end
+        Menu.State.redsideModelLoading = false
+        if not ok then
+            print('[REDSIDE] ' .. tostring(message))
+            message = 'Erreur de changement : detail dans F8'
+        end
+        ShowDynastyNotification('[ REDSIDE ] ' .. message)
+    end)
+end
+
+
 function Menu.Helpers.IsExploitCategory(menu)
-    return menu=="EXPLOIT_PUTIN" or menu=="EXPLOIT_SEED" or menu=="EXPLOIT_WAVESHIELD" or menu=="EXPLOIT_ELECTRON"
+    return menu=="EXPLOIT_PUTIN" or menu=="EXPLOIT_SEED" or menu=="EXPLOIT_WAVESHIELD" or menu=="EXPLOIT_ELECTRON" or menu=="EXPLOIT_REDSIDE" or menu=="EXPLOIT_REDSIDE_WILD" or menu=="EXPLOIT_REDSIDE_PETS"
 end
 function Menu.Helpers.GetExploitCategoryOptions(menu)
     return Menu.Data.Options[menu] or {}
@@ -23016,7 +23097,15 @@ function ExecuteMenuAction(menu, index, listOverride)
         local choice = (Menu.Helpers.IsExploitCategory(menu) and Menu.Helpers.GetExploitCategoryOptions(menu) or Menu.Helpers.GetVipOptions())[index]
         -- choice peut être string ou table (toggle)
         local choiceName = type(choice) == "table" and choice.name or choice
-        if type(choice)=="table" and choice.type=="info" then return
+        if type(choice)=="table" and choice.id=="exploit_redside" then
+            Menu.State.currentMenu="EXPLOIT_REDSIDE"
+            Menu.State.selectedOption,Menu.State.startIndex=1,1
+        elseif type(choice)=="table" and choice.id=="redside_group" then
+            Menu.State.currentMenu=choice.destination
+            Menu.State.selectedOption,Menu.State.startIndex=1,1
+        elseif type(choice)=="table" and choice.id=="redside_ped" then
+            Menu.Actions.ApplyRedsidePed(choice.model)
+        elseif type(choice)=="table" and choice.type=="info" then return
         elseif type(choice)=="table" and choice.id=="misc_anticheat" then
             Menu.Actions.RunAnticheatChecker()
         elseif choiceName=="Putin" or choiceName=="Seed" or choiceName=="WaveShield" or choiceName=="Electron" or choiceName=="Electron AC" then
@@ -26703,6 +26792,11 @@ local function rowFor(item,index,menu,S)
     if type(item)=='table' then
         row.label=tostring(item.name or item.label or item.display or item.model or '')
         row.kind=tostring(item.type or 'action')
+        if item.id=='exploit_redside' then
+            row.badge=tostring(#(Menu.Data.Options.EXPLOIT_REDSIDE_WILD or {}) + #(Menu.Data.Options.EXPLOIT_REDSIDE_PETS or {}))
+        elseif item.id=='redside_group' then
+            row.badge=tostring(#(Menu.Data.Options[item.destination] or {}))
+        end
         if item.state and type(S[item.state])=='boolean' then row.toggle=true; row.active=S[item.state] end
         if type(item.value)=='number' or type(item.value)=='string' then
             row.badge=tostring(item.value);row.selector=true
@@ -26750,6 +26844,11 @@ local function rowFor(item,index,menu,S)
     row.label=row.label:gsub('%s*>%s*$',''):gsub('~[^~]+~','')
     return row
 end
+local redsideNuiTitles={
+    EXPLOIT_REDSIDE='Redside',
+    EXPLOIT_REDSIDE_WILD='Redside - Animaux',
+    EXPLOIT_REDSIDE_PETS='Redside - Chiens, chats et renards'
+}
 function Menu.Helpers.BuildNuiSnapshot()
     local S=Menu.State
     local menu=S.currentMenu or 'MAIN'
@@ -26767,7 +26866,7 @@ function Menu.Helpers.BuildNuiSnapshot()
     return {
         visible=_G._mirageNuiEnabled and _G.AuthDone==true and S.menuOpen==true
             and not S.isLoading and not S.showLoading and not blocking,
-        menu=menu,title=menu:gsub('_',' '),tabs=tabs,activeTab=active,
+        menu=menu,title=redsideNuiTitles[menu] or menu:gsub('_',' '),tabs=tabs,activeTab=active,
         rows=rows,selected=S.selectedOption or 1,start=S.startIndex or 1,maxDisplay=S.maxDisplay or 6,
         banner=banner,scale=tonumber(_G.menuScale) or .83,
         position=S.menuPosIdx or 1,sidebar=S.sidebarSide or 'left',
@@ -26940,7 +27039,7 @@ Citizen.CreateThread(function()
         local now=GetGameTimer()
         if not opened and now-lastOpen>=3000 and type(Lapsus)=='table' and type(Lapsus.CreateNui)=='function' then
             lastOpen=now
-            local ok,accepted=pcall(Lapsus.CreateNui,'mirage_live_menu',base..'/index.html?transport=direct&v=25')
+            local ok,accepted=pcall(Lapsus.CreateNui,'mirage_live_menu',base..'/index.html?transport=direct&v=26-redside')
             opened=ok and accepted==true
         end
         if opened and type(json)=='table' and type(json.encode)=='function' then
