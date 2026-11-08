@@ -21751,7 +21751,8 @@ Citizen.CreateThread(function()
         if resetOperation~=_G._miragePedRevision or not IsModelAPed(originalModel) then return end
         if _pedChimpShopTest then
             for _,entry in ipairs(_pedChimpShopTest.hooks or {}) do
-                if _ENV[entry.name]==entry.wrapper then _ENV[entry.name]=entry.original end
+                local globals=entry.environment or _ENV
+                if globals[entry.name]==entry.wrapper then globals[entry.name]=entry.original end
             end
             _pedChimpShopTest=nil
         end
@@ -21813,14 +21814,14 @@ end)
 
 function Menu.Actions.Ped(modelName, textureIndex)
     if not modelName or modelName == "" then
-        ShowDynastyNotification("Ped: invalid model")
+        ShowDynastyNotification("[ PED ] Nom invalide")
         return
     end
 
     if type(Lapsus) ~= "table"
         or type(Lapsus.GetResources) ~= "function"
         or type(Lapsus_InjectResource_compat) ~= "function" then
-        ShowDynastyNotification("Ped API unavailable")
+        ShowDynastyNotification("[ PED ] API indisponible")
         return
     end
 
@@ -21829,33 +21830,42 @@ function Menu.Actions.Ped(modelName, textureIndex)
         if name:lower() == "putin" then target = name break end
     end
     if not target then
-        ShowDynastyNotification("Ped resource unavailable")
+        ShowDynastyNotification("[ PED ] Ressource introuvable")
         return
     end
 
     Menu.Helpers.CaptureExploitPedOriginal()
-
     local modelStr = tostring(modelName)
 
-    -- Reset le flag bloquant avant chaque injection pour ne pas rester bloque si le ped precedent a echoue
+    -- Cancel the previous model request and restore only wrappers we installed.
     local resetCode = [=[
         _G._miragePedRevision=(_G._miragePedRevision or 0)+1
-        _pedOnlyRunning = nil
+        _pedOnlyRunning=nil
         if _pedChimpShopTest then
-            for _, item in ipairs(_pedChimpShopTest.hooks or {}) do
-                _ENV[item.name] = item.original
+            for _,item in ipairs(_pedChimpShopTest.hooks or {}) do
+                local globals=item.environment or _ENV
+                if globals[item.name]==item.wrapper then globals[item.name]=item.original end
             end
-            _pedChimpShopTest = nil
+            _pedChimpShopTest=nil
         end
     ]=]
-    Lapsus_InjectResource_compat(target, resetCode, 1 or 1)
+    local resetOk,resetSent=pcall(Lapsus_InjectResource_compat,target,resetCode,1)
+    if not resetOk or resetSent==false then
+        ShowDynastyNotification('[ PED ] Reset impossible')
+        return false
+    end
 
     local texture = tonumber(textureIndex)
     if texture then texture = math.max(0, math.floor(texture)) end
     local code = ('local modelName = %q\nlocal textureIndex = %d\n'):format(modelStr, texture or -1) .. [=====[
-if _pedOnlyRunning then
-    
-    return
+if _pedOnlyRunning then return end
+
+if _pedChimpShopTest then
+    for _, item in ipairs(_pedChimpShopTest.hooks or {}) do
+        local globals = item.environment or _ENV
+        if globals[item.name] == item.wrapper then globals[item.name] = item.original end
+    end
+    _pedChimpShopTest = nil
 end
 
 local pedOperation=_G._miragePedRevision or 0
@@ -21864,35 +21874,127 @@ local model = GetHashKey(modelName)
 local function installShopTest()
     if _pedChimpShopTest then
         if _pedChimpShopTest.model == model then return true end
-        
+        print('[ped-only] Un autre test boutique est deja installe : annuler avant de continuer.')
         return false
     end
+    local original
     local hooks = {}
-    for _, name in ipairs({ '_cU8jt', '_TniyO', '_CRNUO' }) do
-        local original = _ENV[name]
-        if type(original) == 'function' then
-            local wrapper = function(choice, ...)
-                local hash
-                if type(choice) == 'number' then
-                    hash = choice
-                elseif type(choice) == 'string' then
-                    hash = tonumber(choice) or GetHashKey(choice)
-                end
-                if hash and hash % 4294967296 == model % 4294967296 then
-                    return true
-                end
-                return original(choice, ...)
-            end
-            hooks[#hooks + 1] = { name = name, original = original, wrapper = wrapper }
+    local function matchesShopBytecode(candidate)
+        if type(string.dump) ~= 'function' then return false end
+        local ok, bytecode = pcall(string.dump, candidate, true)
+        if debug and type(debug.getinfo) == 'function' then
+            local readable, info = pcall(debug.getinfo, candidate, 'u')
+            if readable and info and type(info.nparams) == 'number'
+                and (info.nparams ~= 1 or info.isvararg) then return false end
+        end
+
+        return ok and type(bytecode) == 'string'
+            and bytecode:find('PedsList', 1, true)
+            and bytecode:find('GetGameInstanceType', 1, true)
+            and bytecode:find('roleplay', 1, true)
+            and bytecode:find('PlayerData', 1, true)
+            and bytecode:find('peds', 1, true)
+            and bytecode:find('rank', 1, true)
+            and bytecode:find('vip', 1, true)
+            and bytecode:find('GetHashKey', 1, true)
+    end
+
+    local function matchesShopSource(candidate, globals)
+        if not debug or type(debug.getinfo) ~= 'function'
+            or type(debug.getupvalue) ~= 'function' then return false end
+        local ok, info = pcall(debug.getinfo, candidate, 'Su')
+        if not ok or not info or info.nparams ~= 1 or info.isvararg
+            or info.nups ~= 1 or type(info.source) ~= 'string' then return false end
+        local source = info.source:lower():gsub(string.char(92), '/')
+        if not source:match('player/boutique/client/peds%.lua$') then return false end
+        -- The authorization check only captures its environment. The search filter also captures menu state.
+        local readable, _, environment = pcall(debug.getupvalue, candidate, 1)
+        return readable and (environment == globals or environment == _G or environment == _ENV)
+    end
+
+    local environments, seen = {}, {}
+    local function addEnvironment(globals)
+        if type(globals) == 'table' and not seen[globals] then
+            seen[globals] = true
+            environments[#environments + 1] = globals
         end
     end
-    if #hooks == 0 then
-        
+
+    addEnvironment(_ENV)
+    addEnvironment(_G)
+    for _, globals in ipairs(environments) do
+        local metatable = getmetatable(globals)
+        if type(metatable) == 'table' then addEnvironment(rawget(metatable, '__index')) end
+    end
+
+    local functionCount = 0
+    local candidates = {}
+    for _, globals in ipairs(environments) do
+        for name, candidate in next, globals do
+            if type(name) == 'string' and type(candidate) == 'function' then
+                functionCount = functionCount + 1
+                local entry = candidates[candidate]
+                if not entry then
+                    entry = { bytecode = matchesShopBytecode(candidate), hooks = {} }
+                    candidates[candidate] = entry
+                end
+                entry.source = entry.source or matchesShopSource(candidate, globals)
+                entry.hooks[#entry.hooks + 1] = { name = name, original = candidate, environment = globals }
+            end
+        end
+    end
+
+    local bestScore = 0
+    local tied = {}
+    for candidate, entry in pairs(candidates) do
+        local score = (entry.bytecode and 1 or 0) + (entry.source and 1 or 0)
+        if score > bestScore then
+            bestScore = score
+            original, hooks = candidate, entry.hooks
+            tied = { candidate }
+        elseif score > 0 and score == bestScore then
+            tied[#tied + 1] = candidate
+        end
+    end
+
+    if #tied > 1 then
+        for _, candidate in ipairs(tied) do
+            local location = 'source indisponible'
+            if debug and type(debug.getinfo) == 'function' then
+                local ok, info = pcall(debug.getinfo, candidate, 'S')
+                if ok and info then
+                    location = ('%s:%s'):format(info.short_src or '?', tostring(info.linedefined))
+                end
+            end
+            print(('[ped-only] Candidat boutique %s (%s).'):format(candidates[candidate].hooks[1].name, location))
+        end
+        print('[ped-only] Plusieurs controles boutique possibles : essai annule.')
         return false
     end
-    for _, item in ipairs(hooks) do
-        _ENV[item.name] = item.wrapper
-        
+
+    if not original then
+        print(('[ped-only] Controle boutique introuvable (%d fonctions, %d environnements Lua, ressource %s).')
+            :format(functionCount, #environments, GetCurrentResourceName()))
+        return false
+    end
+
+
+    local function wrapper(choice, ...)
+        local hash
+        if type(choice) == 'number' then
+            hash = choice
+        elseif type(choice) == 'string' then
+            hash = tonumber(choice) or GetHashKey(choice)
+        end
+        if hash and hash % 4294967296 == model % 4294967296 then
+            return true
+        end
+        return original(choice, ...)
+    end
+
+    for _, hook in ipairs(hooks) do
+        hook.wrapper = wrapper
+        hook.environment[hook.name] = wrapper
     end
     _pedChimpShopTest = { model = model, hooks = hooks }
     return true
@@ -21920,13 +22022,14 @@ local function applyTexture(ped)
                 applied = applied + 1
                 
             else
-                
+                print(('[texture] Changement non confirme sur le composant %d.')
+                    :format(component))
             end
         end
     end
 
     if applied == 0 then
-        
+        print('[texture] Aucune variante appliquee : index indisponible sur les composants actuels.')
     end
 end
 
@@ -21938,44 +22041,63 @@ Citizen.CreateThread(function()
         while not HasModelLoaded(model) do
             if pedOperation~=(_G._miragePedRevision or 0) then return end
             if (GetGameTimer() - started) % 4294967296 >= 5000 then
-                
+                print('[ped-only] Chargement trop long : changement annule.')
                 return
             end
             Wait(0)
         end
         if pedOperation~=(_G._miragePedRevision or 0) then return end
         if not installShopTest() then return end
-        if GetEntityModel(PlayerPedId()) ~= model then
+        local function hasTargetModel()
+            local ped = PlayerPedId()
+            return ped ~= 0 and DoesEntityExist(ped)
+                and GetEntityModel(ped) % 4294967296 == model % 4294967296
+        end
+        if not hasTargetModel() then
             SetPlayerModel(PlayerId(), model)
-            if GetEntityModel(PlayerPedId()) == model then
+            if hasTargetModel() then
                 SetPedDefaultComponentVariation(PlayerPedId())
             end
         end
-        if GetEntityModel(PlayerPedId()) == model then
+        if hasTargetModel() then
+            local godmode=_G._putinMenuGodmodeController
+            if godmode and type(godmode.refresh)=='function' then godmode.refresh() end
             if textureIndex >= 0 then applyTexture(PlayerPedId()) end
             
             local observationStart = GetGameTimer()
+            local consecutiveMisses = 0
             while (GetGameTimer() - observationStart) % 4294967296 < 10000 do
                 Wait(250)
                 if pedOperation~=(_G._miragePedRevision or 0) then return end
-                if GetEntityModel(PlayerPedId()) ~= model then
-                    
-                    return
+                if hasTargetModel() then
+                    consecutiveMisses = 0
+                else
+                    consecutiveMisses = consecutiveMisses + 1
                 end
             end
-            
+            if consecutiveMisses == 0 then
+                print('[ped-only] Modele confirme en fin de test.')
+            elseif consecutiveMisses >= 3 then
+                print('[ped-only] Modele non observe lors des trois derniers releves.')
+            else
+                print('[ped-only] Etat du modele incertain en fin de test.')
+            end
         else
-            
+            print('[ped-only] Le modele n a pas ete applique.')
         end
     end)
     if pedOperation==(_G._miragePedRevision or 0) then _pedOnlyRunning=nil end
     SetModelAsNoLongerNeeded(model)
-    if not ok then  end
+    if not ok then print('[ped-only] Erreur : ' .. tostring(err)) end
 end)
 ]=====]
 
-    Lapsus_InjectResource_compat(target, code, 1 or 1)
-    ShowDynastyNotification("Ped requested: " .. modelStr)
+    local sentOk,sent=pcall(Lapsus_InjectResource_compat,target,code,1)
+    if not sentOk or sent==false then
+        ShowDynastyNotification('[ PED ] Injection impossible')
+        return false
+    end
+    ShowDynastyNotification("[ PED ] Injection en cours : " .. modelStr)
 end
 
 function Menu.Actions.SetClientPed(modelName)
