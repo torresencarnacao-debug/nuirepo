@@ -125,7 +125,7 @@ function widgets(value){
 const authPanel=document.getElementById('nuiAuth');
 function drawAuth(value){
  if(!value)return;applyTheme(value.theme);authPanel.hidden=!value.active;if(!value.active)return;
- menu.style.display='none';notice.hidden=true;
+ menu.style.display='none';notice.hidden=true;loadingPanel.hidden=true;bindingPanel.hidden=true;
  document.getElementById('authSubtitle').textContent=value.confirm?'Recognized session':'Enter your authentication key';
  const input=document.getElementById('authInput');input.hidden=!!value.confirm;
  document.getElementById('authConfirm').hidden=!value.confirm;
@@ -139,12 +139,14 @@ function drawAuth(value){
  document.getElementById('authHelp').textContent=value.confirm?'← / → Select · ENTER Confirm':'ENTER Confirm · CTRL+V Paste';
 }
 const loadingPanel=document.getElementById('nuiLoading');
+let highestLoadingProgress=0;
 function drawLoading(value){
- if(!value)return;applyTheme(value.theme);loadingPanel.hidden=!value.active;if(!value.active)return;
- menu.style.display='none';authPanel.hidden=true;notice.hidden=true;
- const percent=Math.max(0,Math.min(100,Number(value.progress)||0));
+ if(!value)return;applyTheme(value.theme);loadingPanel.hidden=!value.active;if(!value.active){highestLoadingProgress=0;return}
+ menu.style.display='none';authPanel.hidden=true;bindingPanel.hidden=true;notice.hidden=true;
+ const percent=highestLoadingProgress=Math.max(highestLoadingProgress,Math.max(0,Math.min(100,Number(value.progress)||0)));
  document.getElementById('loadingPercent').textContent=Math.floor(percent)+'%';
  document.getElementById('loadingProgress').style.width=percent+'%';
+ document.querySelector('.loading-track').setAttribute('aria-valuenow',String(Math.floor(percent)));
  document.getElementById('loadingStatus').textContent=t(value.status||'Loading…');
 }
 const bindingPanel=document.getElementById('nuiBinding');

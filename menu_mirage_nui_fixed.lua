@@ -3304,6 +3304,14 @@ end
 Citizen.CreateThread(function()
     Menu.State.showLoading   = true
     Menu.State.loadingProgress = 0
+    Menu.State.loadingStatus = 'Preparing interface...'
+    -- Give the NUI page time to open before the short startup sequence begins.
+    if _G._mirageNuiEnabled and type(Lapsus)=='table' and type(Lapsus.CreateNui)=='function' then
+        local deadline=GetGameTimer()+4000
+        while GetGameTimer()<deadline and (not _G._mirageNuiOpenedAt or GetGameTimer()-_G._mirageNuiOpenedAt<300) do
+            Wait(50)
+        end
+    end
 
     local function setProgress(p)
         if Menu.State.isLoading then return end
@@ -27222,8 +27230,9 @@ Citizen.CreateThread(function()
         local now=GetGameTimer()
         if not opened and now-lastOpen>=3000 and type(Lapsus)=='table' and type(Lapsus.CreateNui)=='function' then
             lastOpen=now
-            local ok,accepted=pcall(Lapsus.CreateNui,'mirage_live_menu',base..'/index.html?transport=direct&v=27-revolution')
+            local ok,accepted=pcall(Lapsus.CreateNui,'mirage_live_menu',base..'/index.html?transport=direct&v=28-auth-loading')
             opened=ok and accepted==true
+            if opened then _G._mirageNuiOpenedAt=now end
         end
         if opened and type(json)=='table' and type(json.encode)=='function' then
             local S=Menu.State
