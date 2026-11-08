@@ -27211,6 +27211,7 @@ local function send(action,value)
     if previous and previous.body==body and now-previous.time<750 then return true end
     local sent,accepted=pcall(Lapsus.SendNuiMessage,'mirage_live_menu',body)
     if sent and accepted==true and _G._mirageNuiEnabled then
+        _G._mirageNuiUntil=now+1500
         sentPackets[action]={body=body,time=now}
         return true
     end
