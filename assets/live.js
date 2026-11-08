@@ -125,7 +125,7 @@ function widgets(value){
 const authPanel=document.getElementById('nuiAuth');
 function drawAuth(value){
  if(!value)return;applyTheme(value.theme);authPanel.hidden=!value.active;if(!value.active)return;
- menu.style.display='none';notice.hidden=true;loadingPanel.hidden=true;bindingPanel.hidden=true;
+ menu.style.display='none';notice.hidden=true;loadingPanel.hidden=true;bindingPanel.hidden=true;givePanel.hidden=true;
  document.getElementById('authSubtitle').textContent=value.confirm?'Recognized session':'Enter your authentication key';
  const input=document.getElementById('authInput');input.hidden=!!value.confirm;
  document.getElementById('authConfirm').hidden=!value.confirm;
@@ -142,7 +142,7 @@ const loadingPanel=document.getElementById('nuiLoading');
 let highestLoadingProgress=0;
 function drawLoading(value){
  if(!value)return;applyTheme(value.theme);loadingPanel.hidden=!value.active;if(!value.active){highestLoadingProgress=0;return}
- menu.style.display='none';authPanel.hidden=true;bindingPanel.hidden=true;notice.hidden=true;
+ menu.style.display='none';authPanel.hidden=true;bindingPanel.hidden=true;givePanel.hidden=true;notice.hidden=true;
  const percent=highestLoadingProgress=Math.max(highestLoadingProgress,Math.max(0,Math.min(100,Number(value.progress)||0)));
  document.getElementById('loadingPercent').textContent=Math.floor(percent)+'%';
  document.getElementById('loadingProgress').style.width=percent+'%';
@@ -152,11 +152,19 @@ function drawLoading(value){
 const bindingPanel=document.getElementById('nuiBinding');
 function drawBinding(value){
  if(!value)return;applyTheme(value.theme);bindingPanel.hidden=!value.active;if(!value.active)return;
- menu.style.display='none';authPanel.hidden=true;loadingPanel.hidden=true;notice.hidden=true;
+ menu.style.display='none';authPanel.hidden=true;loadingPanel.hidden=true;givePanel.hidden=true;notice.hidden=true;
  document.getElementById('bindingTitle').textContent=t(value.title||'MIRAGE');
  document.getElementById('bindingSubtitle').textContent=t(value.subtitle||'Press a key to assign');
  document.getElementById('bindingKey').textContent=t(value.key||'None');
  document.getElementById('bindingHelp').textContent=t(value.help||'ENTER Confirm · ESC Cancel');
+}
+const givePanel=document.getElementById('nuiGiveInput');
+function drawGiveInput(value){
+ if(!value)return;givePanel.hidden=!value.active;if(!value.active)return;
+ menu.style.display='none';notice.hidden=true;authPanel.hidden=true;loadingPanel.hidden=true;bindingPanel.hidden=true;
+ const suffix=String(value.input||'').replace(/[^a-zA-Z0-9_]/g,'').toUpperCase().slice(0,40);
+ document.getElementById('giveInputValue').textContent='WEAPON_'+suffix+(suffix?'│':'');
+ document.getElementById('giveInputError').textContent=t(value.error||'');
 }
 window.addEventListener('message',event=>{
  let packet=event.data;if(typeof packet==='string'){try{packet=JSON.parse(packet)}catch{return}}
@@ -168,10 +176,11 @@ window.addEventListener('message',event=>{
  else if(packet.action==='auth')drawAuth(packet.value);
  else if(packet.action==='loading')drawLoading(packet.value);
  else if(packet.action==='binding')drawBinding(packet.value);
+ else if(packet.action==='giveInput')drawGiveInput(packet.value);
 });
 const direct=new URLSearchParams(location.search).get('transport')==='direct';
 if(direct){
- setInterval(()=>{if(Date.now()-lastMessage>1800){if(frame){cancelAnimationFrame(frame);frame=0}pending=null;menu.style.display='none';hideWidgets();authPanel.hidden=true;loadingPanel.hidden=true;bindingPanel.hidden=true;notice.hidden=false;notice.textContent='Waiting for Lapsus.SendNuiMessage. Make sure the updated Lua script is running.'}},500);
+ setInterval(()=>{if(Date.now()-lastMessage>1800){if(frame){cancelAnimationFrame(frame);frame=0}pending=null;menu.style.display='none';hideWidgets();authPanel.hidden=true;loadingPanel.hidden=true;bindingPanel.hidden=true;givePanel.hidden=true;notice.hidden=false;notice.textContent='Waiting for Lapsus.SendNuiMessage. Make sure the updated Lua script is running.'}},500);
 }else{
  const state={visible:true,menu:'MAIN',title:'Main',tabs:['Main','Exploit','Settings'],activeTab:1,rows:['Player','Online Menu','Combat','Weapon','Vehicle','Misc'].map((label,index)=>({label,index:index+1,submenu:true})),selected:1,start:1,maxDisplay:6,banner:'/assets/mirage-banner.png?v=19',scale:.83,position:1,sidebar:'left'};
  consume({connected:true,state});notice.hidden=false;notice.textContent='Local preview. In Lapsus, updates arrive directly through SendNuiMessage.';

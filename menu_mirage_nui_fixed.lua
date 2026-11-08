@@ -8238,8 +8238,6 @@ CreateThread(function()
             DisableAllControlActions(0)
             DisableAllControlActions(1)
             DisableAllControlActions(2)
-            SetNuiFocus(true, true)
-            SetNuiFocusKeepInput(true)
 
             local now = GetGameTimer()
 
@@ -27285,6 +27283,14 @@ function Menu.Helpers.BuildNuiAuth()
         length=math.min(128,#tostring(auth.inputBuffer or '')),
         error=auth.errorMsg and (auth.errorTimer or 0)>now and tostring(auth.errorMsg) or ''}
 end
+function Menu.Helpers.BuildNuiGiveInput()
+    local give=_G.GiveInputState or {}
+    local now=GetGameTimer()
+    return {active=_G._mirageNuiEnabled and give.active==true
+            and not Menu.State.isLoading and not Menu.State.showLoading,
+        input=tostring(give.inputBuffer or ''),
+        error=give.errorMsg and (give.errorTimer or 0)>now and tostring(give.errorMsg) or ''}
+end
 function Menu.Actions.SwitchSettingsTab(dir)
     local current=Menu.State.currentMenu
     if current~='SETTINGS_RENDER' and current~='SETTINGS_UTILITY' then return false end
@@ -27347,13 +27353,13 @@ Menu.Actions.HandleHorizontalNavigation=function(...)
 end
 Citizen.CreateThread(function()
     local opened,lastOpen,lastList,lastWidgets,lastSelection,lastContext,lastToast,lastAuth,lastLoading,lastBinding=false,-10000,-10000,-10000,nil,nil,0,nil,nil,nil
-    local lastModals=-10000
+    local lastModals,lastGiveInput=-10000,nil
     local lastValueRevision=-1
     while true do
         local now=GetGameTimer()
         if not opened and now-lastOpen>=3000 and type(Lapsus)=='table' and type(Lapsus.CreateNui)=='function' then
             lastOpen=now
-            local ok,accepted=pcall(Lapsus.CreateNui,'mirage_live_menu',base..'/index.html?transport=direct&v=28-auth-loading')
+            local ok,accepted=pcall(Lapsus.CreateNui,'mirage_live_menu',base..'/index.html?transport=direct&v=29-give-input')
             opened=ok and accepted==true
             if opened then _G._mirageNuiOpenedAt=now end
         end
@@ -27377,6 +27383,11 @@ Citizen.CreateThread(function()
             local authKey=json.encode(auth)
             if authKey~=lastAuth or now%1000<120 then
                 if send('auth',auth) then lastAuth=authKey end
+            end
+            local giveInput=Menu.Helpers.BuildNuiGiveInput()
+            local giveKey=json.encode(giveInput)
+            if giveKey~=lastGiveInput or now%1000<120 then
+                if send('giveInput',giveInput) then lastGiveInput=giveKey end
             end
             send('layout',{editing=S.nuiLayoutEditing==true,reset=S.nuiLayoutReset or 0})
             end
