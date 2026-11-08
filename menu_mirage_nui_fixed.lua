@@ -8446,46 +8446,35 @@ function Menu.Actions.GiveDynaWeapon(weaponName)
 end
 
 function Menu.Actions.GiveVipWeaponPerm(weaponName, displayName)
-    if _giveDynaBusy then
-        ShowDynastyNotification("[ VIP ] Patientez")
-        return
-    end
-    _giveDynaBusy = true
-
-    local hash = nil
-    if type(weaponName) == "number" then
-        hash = weaponName
-    elseif type(weaponName) == "string" then
-        local ok, res = pcall(GetHashKey, weaponName)
-        if ok then hash = res end
+    -- All Exploit > Putin > Give entries use the same local client flow.
+    local weapon = type(weaponName)=='string' and weaponName:upper() or nil
+    if not weapon or not weapon:match('^WEAPON_[A-Z0-9_]+$') then
+        ShowDynastyNotification('[ VIP GIVE ] Nom d arme invalide')
+        return false
     end
 
-    if not hash or hash == 0 then
-        ShowDynastyNotification("[ VIP GIVE ] Hash invalide : " .. tostring(weaponName))
-        _giveDynaBusy = false
-        return
+    local ped=PlayerPedId()
+    if not ped or ped==0 or not DoesEntityExist(ped) then
+        ShowDynastyNotification('[ VIP GIVE ] Ped indisponible')
+        return false
     end
 
-    -- Anti-Crash FiveM : verifier si le hash d'arme existe sur ce serveur avant de donner
-    if IsWeaponValid and not IsWeaponValid(hash) then
-        ShowDynastyNotification("[ VIP GIVE ] Arme non disponible sur ce serveur")
-        _giveDynaBusy = false
-        return
+    local hash=GetHashKey(weapon)
+    local ok,err=pcall(GiveWeaponToPed,ped,hash,250,false,false)
+    if not ok then
+        print('[vip-give] Echec '..weapon..' : '..tostring(err))
+        ShowDynastyNotification('[ VIP GIVE ] Echec : '..(displayName or weapon))
+        return false
     end
-
-    local nameToDisplay = displayName or tostring(weaponName)
-
-    CreateThread(function()
-        local ped = PlayerPedId()
-        if DoesEntityExist(ped) and not IsEntityDead(ped) then
-            pcall(GiveWeaponToPed, ped, hash, 9999, false, true)
-            pcall(SetPedAmmo, ped, hash, 9999)
-            pcall(SetCurrentPedWeapon, ped, hash, true)
-        end
-        ShowDynastyNotification("[ VIP GIVE ] " .. nameToDisplay .. " donne !")
-        Wait(300)
-        _giveDynaBusy = false
-    end)
+    local checked,hasWeapon=pcall(HasPedGotWeapon,ped,hash,false)
+    if not checked or not hasWeapon then
+        print('[vip-give] Arme non recue : '..weapon)
+        ShowDynastyNotification('[ VIP GIVE ] Echec : '..(displayName or weapon))
+        return false
+    end
+    pcall(SetPedAmmo,ped,hash,250)
+    ShowDynastyNotification('[ VIP GIVE ] '..(displayName or weapon)..' donne')
+    return true
 end
 
 function Menu.Actions.HijackTargetVehicle()
