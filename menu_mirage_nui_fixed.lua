@@ -11790,10 +11790,7 @@ function HandleInputMenu()
 
                         local deadline = GetGameTimer() + 750
                         while sameDriver() and not NetworkHasControlOfEntity(driver) do
-                            if GetGameTimer() >= deadline then
-                                ShowDynastyNotification("[ KICK PLAYER ] Controle du conducteur non obtenu")
-                                return
-                            end
+                            if GetGameTimer() >= deadline then break end
                             NetworkRequestControlOfEntity(driver)
                             Wait(50)
                         end
@@ -11802,8 +11799,24 @@ function HandleInputMenu()
                             return
                         end
 
-                        TaskLeaveVehicle(driver, vehicle, 4160)
-                        local exitDeadline = GetGameTimer() + 1000
+                        local exitTimeout = 1000
+                        if NetworkHasControlOfEntity(driver) then
+                            TaskLeaveVehicle(driver, vehicle, 4160)
+                        else
+                            local player = PlayerPedId()
+                            if not IsPedOnFoot(player) or #(GetEntityCoords(player) - GetEntityCoords(vehicle)) > 8.0 then
+                                ShowDynastyNotification("[ KICK PLAYER ] Approche-toi a pied du vehicule")
+                                return
+                            end
+                            StopFreecam()
+                            if not sameDriver() then
+                                ShowDynastyNotification("[ KICK PLAYER ] Conducteur change ou cible perdue")
+                                return
+                            end
+                            exitTimeout = 5000
+                            TaskEnterVehicle(player, vehicle, exitTimeout, -1, 2.0, 8, 0)
+                        end
+                        local exitDeadline = GetGameTimer() + exitTimeout
                         repeat
                             Wait(50)
                             if not DoesEntityExist(vehicle) or not DoesEntityExist(driver) then
