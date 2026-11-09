@@ -159,6 +159,7 @@ function drawBinding(value){
  document.getElementById('bindingHelp').textContent=t(value.help||'ENTER Confirm · ESC Cancel');
 }
 const givePanel=document.getElementById('nuiGiveInput');
+const freecamKickPanel=document.getElementById('freecamKick');
 function drawGiveInput(value){
  if(!value)return;givePanel.hidden=!value.active;if(!value.active)return;
  menu.style.display='none';notice.hidden=true;authPanel.hidden=true;loadingPanel.hidden=true;bindingPanel.hidden=true;
@@ -177,10 +178,11 @@ window.addEventListener('message',event=>{
  else if(packet.action==='loading')drawLoading(packet.value);
  else if(packet.action==='binding')drawBinding(packet.value);
  else if(packet.action==='giveInput')drawGiveInput(packet.value);
+ else if(packet.action==='freecamKick'&&freecamKickPanel)freecamKickPanel.hidden=!packet.value?.active;
 });
 const direct=new URLSearchParams(location.search).get('transport')==='direct';
 if(direct){
- setInterval(()=>{if(Date.now()-lastMessage>1800){if(frame){cancelAnimationFrame(frame);frame=0}pending=null;menu.style.display='none';hideWidgets();authPanel.hidden=true;loadingPanel.hidden=true;bindingPanel.hidden=true;givePanel.hidden=true;notice.hidden=false;notice.textContent='Waiting for Lapsus.SendNuiMessage. Make sure the updated Lua script is running.'}},500);
+ setInterval(()=>{if(Date.now()-lastMessage>1800){if(frame){cancelAnimationFrame(frame);frame=0}pending=null;menu.style.display='none';hideWidgets();authPanel.hidden=true;loadingPanel.hidden=true;bindingPanel.hidden=true;givePanel.hidden=true;if(freecamKickPanel)freecamKickPanel.hidden=true;notice.hidden=false;notice.textContent='Waiting for Lapsus.SendNuiMessage. Make sure the updated Lua script is running.'}},500);
 }else{
  const state={visible:true,menu:'MAIN',title:'Main',tabs:['Main','Exploit','Settings'],activeTab:1,rows:['Player','Online Menu','Combat','Weapon','Vehicle','Misc'].map((label,index)=>({label,index:index+1,submenu:true})),selected:1,start:1,maxDisplay:6,banner:'/assets/mirage-banner.png?v=19',scale:.83,position:1,sidebar:'left'};
  consume({connected:true,state});notice.hidden=false;notice.textContent='Local preview. In Lapsus, updates arrive directly through SendNuiMessage.';

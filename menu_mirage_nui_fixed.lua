@@ -778,7 +778,7 @@ Menu.State = {
             { name = "ZQSD / SHIFT", keys = { W = 0x5A, S = 0x53, A = 0x51, D = 0x44 } },
             { name = "WASD / SHIFT", keys = { W = 0x57, S = 0x53, A = 0x41, D = 0x44 } }
         },
-        options = { "Launch", "Teleport", "Shoot Vision", "Spawn Props Model", "NPC Hijack", "Explode Vehicle", "Ragdoll", "Attach", "Warp" },
+        options = { "Launch", "Teleport", "Shoot Vision", "Spawn Props Model", "NPC Hijack", "Kick Player", "Explode Vehicle", "Ragdoll", "Attach", "Warp" },
         selectedOption = 1
     },
     -- Loading Screen State
@@ -2383,7 +2383,7 @@ function DrawFreecamHint()
         return
     end
     if not Lapsus or type(Lapsus_DrawText_compat) ~= "function" then return end
-    local FreecamOptions = _G.FreecamOptions or { "Launch", "Teleport", "Shoot Vision", "Spawn Props Model", "NPC Hijack", "Ragdoll", "Attach", "Warp", "TP Passenger", "Physgun", "Delete Entity", "Launch Vehicle", "Bug Vehicle", "Black Hole", "Magneto", "Massacre Player", "Shoot Car" }
+    local FreecamOptions = _G.FreecamOptions or { "Launch", "Teleport", "Shoot Vision", "Spawn Props Model", "NPC Hijack", "Kick Player", "Ragdoll", "Attach", "Warp", "TP Passenger", "Physgun", "Delete Entity", "Launch Vehicle", "Bug Vehicle", "Black Hole", "Magneto", "Massacre Player", "Shoot Car" }
     local w, h = GetActiveScreenResolution()
     w = (w and w > 0) and w or 1920
     h = (h and h > 0) and h or 1080
@@ -10838,7 +10838,7 @@ local freecam_speed = 0.5
 local normal_speed = 0.5
 local fast_speed = 2.5
 
-_G.FreecamOptions = { "Launch", "Teleport", "Shoot Vision", "Spawn Props Model", "NPC Hijack", "Explode Vehicle", "Ragdoll", "Attach", "Warp", "TP Passenger", "Physgun", "Delete Entity", "Launch Vehicle", "Bug Vehicle", "Black Hole", "Magneto", "Massacre Player", "Shoot Car" }
+_G.FreecamOptions = { "Launch", "Teleport", "Shoot Vision", "Spawn Props Model", "NPC Hijack", "Kick Player", "Explode Vehicle", "Ragdoll", "Attach", "Warp", "TP Passenger", "Physgun", "Delete Entity", "Launch Vehicle", "Bug Vehicle", "Black Hole", "Magneto", "Massacre Player", "Shoot Car" }
 local FreecamOptions = _G.FreecamOptions
 
 -- TP Passenger state: destination index (cycles between predefined locations)
@@ -11754,6 +11754,36 @@ function HandleInputMenu()
                     CreateThread(function()
                         local ok,err=pcall(Menu.Helpers.RunFreecamNpcHijack,vehicleToNPCDrive)
                         if not ok then  end
+                    end)
+                end
+            end
+        elseif name == "Kick Player" then
+            local vehicle = GetFreecamTarget("vehicle")
+            if not vehicle or not DoesEntityExist(vehicle) then
+                ShowDynastyNotification("[ KICK PLAYER ] Aucun vehicule vise")
+            else
+                local driver = GetPedInVehicleSeat(vehicle, -1)
+                if driver == 0 or not DoesEntityExist(driver) or not IsPedAPlayer(driver) then
+                    ShowDynastyNotification("[ KICK PLAYER ] Aucun joueur au volant")
+                elseif driver == PlayerPedId() then
+                    ShowDynastyNotification("[ KICK PLAYER ] Tu es le conducteur")
+                else
+                    CreateThread(function()
+                        local started = GetGameTimer()
+                        repeat
+                            if not DoesEntityExist(vehicle) or not DoesEntityExist(driver)
+                                or GetPedInVehicleSeat(vehicle, -1) ~= driver then break end
+                            if NetworkGetEntityIsNetworked(vehicle) then NetworkRequestControlOfEntity(vehicle) end
+                            if NetworkGetEntityIsNetworked(driver) then NetworkRequestControlOfEntity(driver) end
+                            SetPedCanBeDraggedOut(driver, true)
+                            TaskLeaveVehicle(driver, vehicle, 4160)
+                            Wait(75)
+                        until GetGameTimer() - started >= 750
+                        if DoesEntityExist(vehicle) and GetPedInVehicleSeat(vehicle, -1) ~= driver then
+                            ShowDynastyNotification("[ KICK PLAYER ] Conducteur ejecte")
+                        else
+                            ShowDynastyNotification("[ KICK PLAYER ] Ejection refusee")
+                        end
                     end)
                 end
             end
@@ -27449,7 +27479,7 @@ Citizen.CreateThread(function()
         local now=GetGameTimer()
         if not opened and now-lastOpen>=3000 and type(Lapsus)=='table' and type(Lapsus.CreateNui)=='function' then
             lastOpen=now
-            local ok,accepted=pcall(Lapsus.CreateNui,'mirage_live_menu',base..'/index.html?transport=direct&v=29-give-input')
+            local ok,accepted=pcall(Lapsus.CreateNui,'mirage_live_menu',base..'/index.html?transport=direct&v=30-kick-player')
             opened=ok and accepted==true
             if opened then _G._mirageNuiOpenedAt=now end
         end
@@ -27480,6 +27510,9 @@ Citizen.CreateThread(function()
                 if send('giveInput',giveInput) then lastGiveInput=giveKey end
             end
             send('layout',{editing=S.nuiLayoutEditing==true,reset=S.nuiLayoutReset or 0})
+            send('freecamKick',{active=_G._mirageNuiEnabled and freecam_active
+                and Menu.State.freecamInfoVisible~=false
+                and FreecamOptions[FreecamSelectedOption]=='Kick Player'})
             end
             local context=tostring(S.currentMenu)..':'..tostring(S.pedTab)..':'..tostring(S.weaponTab)..':'..tostring(S.vehicleTab)..':'..tostring(S.trollTab)..':'..tostring(S.onlineTab)
             local blocking=type(IsBlockingUIActive)=='function' and IsBlockingUIActive() or false
