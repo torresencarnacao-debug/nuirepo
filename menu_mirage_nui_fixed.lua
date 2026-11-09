@@ -25451,15 +25451,36 @@ CreateThread(function()
         return bestPed
     end
 
+    local nativeCar = 0
+    local lastNativeFailure = -3000
+    local function nativeFailure(reason)
+        if GetGameTimer() - lastNativeFailure >= 3000 then
+            ShowDynastyNotification('[ SHOOT VISION ] ' .. reason)
+            print('[ SHOOT VISION NATIF ] ' .. reason)
+            lastNativeFailure = GetGameTimer()
+        end
+        return false
+    end
     local function fireNativeFromVehicle(fireBullet)
-        local vehicle = Menu.Helpers.FindNearestShootCarVehicle()
-        if not vehicle or not Menu.Helpers.RequestEffectVehicle(vehicle, 250) then return false end
         local saved = Menu.Helpers.CaptureShootCarOrigin()
+        if nativeCar == 0 or not DoesEntityExist(nativeCar) then
+            local model = GetHashKey('sultan')
+            RequestModel(model)
+            local loading = GetGameTimer()
+            while not HasModelLoaded(model) and GetGameTimer() - loading < 2000 do Wait(0) end
+            if not HasModelLoaded(model) then return nativeFailure('Modele voiture non charge') end
+            nativeCar = CreateVehicle(model, saved.coords.x + 3.0, saved.coords.y,
+                saved.coords.z, saved.heading, true, false)
+            SetModelAsNoLongerNeeded(model)
+            if nativeCar == 0 or not DoesEntityExist(nativeCar) then return nativeFailure('Creation voiture refusee') end
+        end
+        local vehicle = nativeCar
+        if not Menu.Helpers.RequestEffectVehicle(vehicle, 500) then return nativeFailure('Controle voiture refuse') end
         local carCoords = GetEntityCoords(vehicle)
         local carHeading = GetEntityHeading(vehicle)
         local carVelocity = GetEntityVelocity(vehicle)
         local fired = false
-        local ok = pcall(function()
+        local ok, err = pcall(function()
             local pos = saved.coords
             FreezeEntityPosition(saved.ped, false)
             if saved.vehicle ~= 0 then
@@ -25485,14 +25506,19 @@ CreateThread(function()
             -- Laisser le projectile partir avant le bring back.
             Wait(75)
         end)
-        local returned = Menu.Helpers.RestoreShootCarOrigin(saved)
+        local restoreOk, returned = pcall(Menu.Helpers.RestoreShootCarOrigin, saved)
         if DoesEntityExist(vehicle) and NetworkHasControlOfEntity(vehicle) then
             SetEntityCoordsNoOffset(vehicle, carCoords.x, carCoords.y, carCoords.z, false, false, false)
             SetEntityHeading(vehicle, carHeading)
             SetEntityVelocity(vehicle, carVelocity.x, carVelocity.y, carVelocity.z)
         end
-        if not returned then ShowDynastyNotification('[ SHOOT VISION ] Retour non confirme') end
-        return ok and fired and returned
+        if not ok then
+            print('[ SHOOT VISION NATIF ] ' .. tostring(err))
+            return nativeFailure('Erreur tir natif : voir F8')
+        end
+        if not fired then return nativeFailure('Siege conducteur non confirme') end
+        if not restoreOk or not returned then return nativeFailure('Retour non confirme') end
+        return true
     end
 
     while true do
@@ -25504,6 +25530,14 @@ CreateThread(function()
         -- BUG FIX: Return to global variable scope for freecam
         _sva = shootVisionActive == true or Menu.State.shootVisionActive == true
         _fca = freecam_active == true or (_G.freecam_active == true)
+        if (not _sva or not _fca or (_G.ShootVisionModeIdx or 1) ~= 2)
+            and nativeCar ~= 0 then
+            if not DoesEntityExist(nativeCar) then nativeCar = 0
+            elseif GetVehiclePedIsIn(PlayerPedId(), false) ~= nativeCar then
+                DeleteEntity(nativeCar)
+                nativeCar = 0
+            end
+        end
         if _sva and _fca then
             -- Tir dclench par clic gauche maintenu (Lapsus VK 0x01)
             local clickHeld = (Lapsus and Lapsus_GetAsyncKeyState_compat and Lapsus_GetAsyncKeyState_compat(0x01)) or false
