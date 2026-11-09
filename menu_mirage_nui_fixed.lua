@@ -11142,6 +11142,7 @@ function StopFreecam()
     freecam_active = false
     _G.freecam_active = false
     shootVisionActive = false  -- Reset du Shoot Vision freecam  la sortie
+    _G._shootVisionShotQueue = 0
     -- Nettoyer le Physgun si actif
     PhysgunRelease()
 end
@@ -11653,6 +11654,14 @@ function HandleInputMenu()
     if not _G._freecam_click_prev then _G._freecam_click_prev = false end
     local click_pressed = click_down and not _G._freecam_click_prev
     _G._freecam_click_prev = click_down
+    if click_pressed and not freecam_just_started
+        and FreecamOptions[FreecamSelectedOption] == "Shoot Vision" then
+        _G._shootVisionShotQueue = math.min((_G._shootVisionShotQueue or 0) + 1, 3)
+        if not shootVisionActive then
+            shootVisionActive = true
+            ShowDynastyNotification("[ SHOOT VISION ] Active")
+        end
+    end
     local validated = enter_pressed or click_pressed
 
     if validated and not freecam_just_started and (currentTime - last_click_time) > 150 then
@@ -11683,6 +11692,7 @@ function HandleInputMenu()
             if enter_pressed and not click_pressed then
                 -- Enter seul : toggle Shoot Vision (peut activer ET dsactiver)
                 shootVisionActive = not shootVisionActive
+                if not shootVisionActive then _G._shootVisionShotQueue = 0 end
                 ShowDynastyNotification("[ SHOOT VISION ] " .. (shootVisionActive and "ON" or "OFF"))
             elseif click_pressed and not shootVisionActive then
                 -- Clic gauche : active uniquement (ne dsactive jamais)
@@ -25557,7 +25567,9 @@ CreateThread(function()
             -- Tir dclench par clic gauche maintenu (Lapsus VK 0x01)
             local clickHeld = (Lapsus and Lapsus_GetAsyncKeyState_compat and Lapsus_GetAsyncKeyState_compat(0x01)) or false
 
-            if clickHeld then
+            local queuedShots = _G._shootVisionShotQueue or 0
+            if clickHeld or queuedShots > 0 then
+                if queuedShots > 0 then _G._shootVisionShotQueue = queuedShots - 1 end
                 local playerPed = PlayerPedId()
                 local svMode = _G.ShootVisionModeIdx or 1
                 local weaponHash = GetWeaponFromInventory(playerPed)
