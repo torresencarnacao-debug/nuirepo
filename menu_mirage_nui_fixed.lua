@@ -11758,8 +11758,22 @@ function HandleInputMenu()
                 end
             end
         elseif name == "Kick Player" then
-            local vehicle = GetFreecamTarget("vehicle")
-            if not vehicle or not DoesEntityExist(vehicle) then
+            local camera, _, direction = GetFreecamRaycastData()
+            local destination = camera + direction * 800.0
+            local ray = StartExpensiveSynchronousShapeTestLosProbe(
+                camera.x, camera.y, camera.z, destination.x, destination.y, destination.z,
+                -1, PlayerPedId(), 7
+            )
+            local status, hit, _, _, entity = GetShapeTestResult(ray)
+            local vehicle = 0
+            if status == 2 and (hit == true or hit == 1) and entity ~= 0 and DoesEntityExist(entity) then
+                if IsEntityAVehicle(entity) then
+                    vehicle = entity
+                elseif IsEntityAPed(entity) then
+                    vehicle = GetVehiclePedIsIn(entity, false)
+                end
+            end
+            if vehicle == 0 or not DoesEntityExist(vehicle) then
                 ShowDynastyNotification("[ KICK PLAYER ] Aucun vehicule vise")
             else
                 local driver = GetPedInVehicleSeat(vehicle, -1)
@@ -11769,34 +11783,40 @@ function HandleInputMenu()
                     ShowDynastyNotification("[ KICK PLAYER ] Tu es le conducteur")
                 else
                     CreateThread(function()
-                        local function stillDriving()
+                        local function sameDriver()
                             return DoesEntityExist(vehicle) and DoesEntityExist(driver)
                                 and GetPedInVehicleSeat(vehicle, -1) == driver
-                                and GetVehiclePedIsIn(driver, false) == vehicle
                         end
-                        local started = GetGameTimer()
+
+                        local deadline = GetGameTimer() + 750
+                        while sameDriver() and not NetworkHasControlOfEntity(driver) do
+                            if GetGameTimer() >= deadline then
+                                ShowDynastyNotification("[ KICK PLAYER ] Controle du conducteur non obtenu")
+                                return
+                            end
+                            NetworkRequestControlOfEntity(driver)
+                            Wait(50)
+                        end
+                        if not sameDriver() then
+                            ShowDynastyNotification("[ KICK PLAYER ] Conducteur change ou cible perdue")
+                            return
+                        end
+
+                        TaskLeaveVehicle(driver, vehicle, 4160)
+                        local exitDeadline = GetGameTimer() + 1000
                         repeat
-                            if not stillDriving() then break end
-                            if NetworkGetEntityIsNetworked(vehicle) then NetworkRequestControlOfEntity(vehicle) end
-                            if NetworkGetEntityIsNetworked(driver) then NetworkRequestControlOfEntity(driver) end
-                            SetPedCanBeDraggedOut(driver, true)
-                            TaskLeaveVehicle(driver, vehicle, 4160)
-                            Wait(75)
-                        until GetGameTimer() - started >= 750
-                        if stillDriving() and NetworkHasControlOfEntity(driver) then
-                            local outside = GetOffsetFromEntityInWorldCoords(vehicle, 3.0, 0.0, 1.0)
-                            RequestCollisionAtCoord(outside.x, outside.y, outside.z)
-                            ClearPedTasksImmediately(driver)
-                            SetEntityCoordsNoOffset(driver, outside.x, outside.y, outside.z, false, false, false)
-                            Wait(150)
-                        end
-                        if not DoesEntityExist(vehicle) or not DoesEntityExist(driver) then
-                            ShowDynastyNotification("[ KICK PLAYER ] Cible perdue")
-                        elseif not stillDriving() then
-                            ShowDynastyNotification("[ KICK PLAYER ] Conducteur ejecte")
-                        else
-                            ShowDynastyNotification("[ KICK PLAYER ] Controle refuse par le serveur")
-                        end
+                            Wait(50)
+                            if not DoesEntityExist(vehicle) or not DoesEntityExist(driver) then
+                                ShowDynastyNotification("[ KICK PLAYER ] Cible perdue")
+                                return
+                            end
+                            if GetPedInVehicleSeat(vehicle, -1) ~= driver
+                                and GetVehiclePedIsIn(driver, false) == 0 then
+                                ShowDynastyNotification("[ KICK PLAYER ] Conducteur sorti")
+                                return
+                            end
+                        until GetGameTimer() >= exitDeadline
+                        ShowDynastyNotification("[ KICK PLAYER ] Sortie non confirmee")
                     end)
                 end
             end
