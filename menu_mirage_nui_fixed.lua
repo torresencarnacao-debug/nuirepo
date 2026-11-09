@@ -17888,47 +17888,51 @@ end
 function Menu.Actions.ToggleEasyHandling()
     Menu.State.easyHandlingActive = not Menu.State.easyHandlingActive
     local enable = Menu.State.easyHandlingActive
+    local fields = {"fMass", "fInitialDragCoeff", "fTractionLossMult", "fLowSpeedTractionLossMult", "fSteeringLock"}
+    local originals = Menu.State._easyHandlingOriginals or {}
+    Menu.State._easyHandlingOriginals = originals
 
-    if type(Lapsus) == "table" and type(Lapsus_InjectResource_compat) == "function" then
-        Lapsus_InjectResource_compat("any", string.format([[
-            if _G.EasyHandlingEnabled == nil then _G.EasyHandlingEnabled = false end
-            _G.EasyHandlingEnabled = %s
-
-            if _G.EasyHandlingEnabled then
-                local function StartEasyHandling()
-                    CreateThread(function()
-                        while _G.EasyHandlingEnabled and not Unloaded do
-                        Wait(0)
-                        local ped = PlayerPedId()
-                        if ped and ped ~= 0 then
-                            local veh = GetVehiclePedIsIn(ped, false)
-                                if veh and veh ~= 0 and DoesEntityExist(veh) then
-                                    SetVehicleGravityAmount(veh, 73.0)
-                                    SetVehicleHandlingFloat(veh, "CHandlingData", "fMass", 500.0)
-                                    SetVehicleHandlingFloat(veh, "CHandlingData", "fInitialDragCoeff", 5.0)
-                                    SetVehicleHandlingFloat(veh, "CHandlingData", "fTractionLossMult", 0.0)
-                                    SetVehicleHandlingFloat(veh, "CHandlingData", "fLowSpeedTractionLossMult", 0.0)
-                                    SetVehicleHandlingFloat(veh, "CHandlingData", "fSteeringLock", 40.0)
-                                    ModifyVehicleTopSpeed(veh, 1.5)
-                            end
-                        end
-                    end
-                end)
-                end
-                StartEasyHandling()
-            else
+    if enable then
+        Menu.State._easyHandlingGeneration = (Menu.State._easyHandlingGeneration or 0) + 1
+        local generation = Menu.State._easyHandlingGeneration
+        CreateThread(function()
+            while Menu.State.easyHandlingActive and Menu.State._easyHandlingGeneration == generation do
                 local ped = PlayerPedId()
-                if ped and ped ~= 0 then
-                    local veh = GetVehiclePedIsIn(ped, false)
-                    if veh and veh ~= 0 and DoesEntityExist(veh) then
-                        SetVehicleGravityAmount(veh, 9.8)
-                        SetVehicleHandlingFloat(veh, "CHandlingData", "fMass", 1500.0)
-                        SetVehicleHandlingFloat(veh, "CHandlingData", "fInitialDragCoeff", 10.0)
-                        ModifyVehicleTopSpeed(veh, 1.0)
+                local veh = ped and ped ~= 0 and GetVehiclePedIsIn(ped, false) or 0
+                if veh ~= 0 and DoesEntityExist(veh) then
+                    if not originals[veh] then
+                        local saved = {handling = {}, gravity = 9.8}
+                        if type(GetVehicleGravityAmount) == "function" then
+                            saved.gravity = GetVehicleGravityAmount(veh) or 9.8
+                        end
+                        for _, field in ipairs(fields) do
+                            saved.handling[field] = GetVehicleHandlingFloat(veh, "CHandlingData", field)
+                        end
+                        originals[veh] = saved
                     end
+                    SetVehicleGravityAmount(veh, 73.0)
+                    SetVehicleHandlingFloat(veh, "CHandlingData", "fMass", 500.0)
+                    SetVehicleHandlingFloat(veh, "CHandlingData", "fInitialDragCoeff", 5.0)
+                    SetVehicleHandlingFloat(veh, "CHandlingData", "fTractionLossMult", 0.0)
+                    SetVehicleHandlingFloat(veh, "CHandlingData", "fLowSpeedTractionLossMult", 0.0)
+                    SetVehicleHandlingFloat(veh, "CHandlingData", "fSteeringLock", 40.0)
+                    ModifyVehicleTopSpeed(veh, 1.5)
                 end
+                Wait(0)
             end
-        ]], tostring(enable)))
+        end)
+    else
+        Menu.State._easyHandlingGeneration = (Menu.State._easyHandlingGeneration or 0) + 1
+        for veh, saved in pairs(originals) do
+            if DoesEntityExist(veh) then
+                SetVehicleGravityAmount(veh, saved.gravity)
+                for field, value in pairs(saved.handling) do
+                    SetVehicleHandlingFloat(veh, "CHandlingData", field, value)
+                end
+                ModifyVehicleTopSpeed(veh, 1.0)
+            end
+            originals[veh] = nil
+        end
     end
 
     if enable then
