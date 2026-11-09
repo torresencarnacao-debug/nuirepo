@@ -11803,7 +11803,8 @@ function HandleInputMenu()
                             ShowDynastyNotification("[ KICK PLAYER ] Controle du conducteur non obtenu")
                             return
                         end
-                        TaskLeaveVehicle(driver, vehicle, 4160)
+                        local instantExit = 16
+                        TaskLeaveVehicle(driver, vehicle, instantExit)
                         local exitDeadline = GetGameTimer() + 1000
                         repeat
                             Wait(50)
