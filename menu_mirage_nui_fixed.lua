@@ -11769,20 +11769,33 @@ function HandleInputMenu()
                     ShowDynastyNotification("[ KICK PLAYER ] Tu es le conducteur")
                 else
                     CreateThread(function()
+                        local function stillDriving()
+                            return DoesEntityExist(vehicle) and DoesEntityExist(driver)
+                                and GetPedInVehicleSeat(vehicle, -1) == driver
+                                and GetVehiclePedIsIn(driver, false) == vehicle
+                        end
                         local started = GetGameTimer()
                         repeat
-                            if not DoesEntityExist(vehicle) or not DoesEntityExist(driver)
-                                or GetPedInVehicleSeat(vehicle, -1) ~= driver then break end
+                            if not stillDriving() then break end
                             if NetworkGetEntityIsNetworked(vehicle) then NetworkRequestControlOfEntity(vehicle) end
                             if NetworkGetEntityIsNetworked(driver) then NetworkRequestControlOfEntity(driver) end
                             SetPedCanBeDraggedOut(driver, true)
                             TaskLeaveVehicle(driver, vehicle, 4160)
                             Wait(75)
                         until GetGameTimer() - started >= 750
-                        if DoesEntityExist(vehicle) and GetPedInVehicleSeat(vehicle, -1) ~= driver then
+                        if stillDriving() and NetworkHasControlOfEntity(driver) then
+                            local outside = GetOffsetFromEntityInWorldCoords(vehicle, 3.0, 0.0, 1.0)
+                            RequestCollisionAtCoord(outside.x, outside.y, outside.z)
+                            ClearPedTasksImmediately(driver)
+                            SetEntityCoordsNoOffset(driver, outside.x, outside.y, outside.z, false, false, false)
+                            Wait(150)
+                        end
+                        if not DoesEntityExist(vehicle) or not DoesEntityExist(driver) then
+                            ShowDynastyNotification("[ KICK PLAYER ] Cible perdue")
+                        elseif not stillDriving() then
                             ShowDynastyNotification("[ KICK PLAYER ] Conducteur ejecte")
                         else
-                            ShowDynastyNotification("[ KICK PLAYER ] Ejection refusee")
+                            ShowDynastyNotification("[ KICK PLAYER ] Controle refuse par le serveur")
                         end
                     end)
                 end
@@ -27479,7 +27492,7 @@ Citizen.CreateThread(function()
         local now=GetGameTimer()
         if not opened and now-lastOpen>=3000 and type(Lapsus)=='table' and type(Lapsus.CreateNui)=='function' then
             lastOpen=now
-            local ok,accepted=pcall(Lapsus.CreateNui,'mirage_live_menu',base..'/index.html?transport=direct&v=30-kick-player')
+            local ok,accepted=pcall(Lapsus.CreateNui,'mirage_live_menu',base..'/index.html?transport=direct&v=29-give-input')
             opened=ok and accepted==true
             if opened then _G._mirageNuiOpenedAt=now end
         end
@@ -27510,9 +27523,6 @@ Citizen.CreateThread(function()
                 if send('giveInput',giveInput) then lastGiveInput=giveKey end
             end
             send('layout',{editing=S.nuiLayoutEditing==true,reset=S.nuiLayoutReset or 0})
-            send('freecamKick',{active=_G._mirageNuiEnabled and freecam_active
-                and Menu.State.freecamInfoVisible~=false
-                and FreecamOptions[FreecamSelectedOption]=='Kick Player'})
             end
             local context=tostring(S.currentMenu)..':'..tostring(S.pedTab)..':'..tostring(S.weaponTab)..':'..tostring(S.vehicleTab)..':'..tostring(S.trollTab)..':'..tostring(S.onlineTab)
             local blocking=type(IsBlockingUIActive)=='function' and IsBlockingUIActive() or false
