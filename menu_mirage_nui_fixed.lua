@@ -25462,16 +25462,18 @@ CreateThread(function()
     end
     local function fireNativeFromVehicle(fireBullet, targetPed)
         local saved = Menu.Helpers.CaptureShootCarOrigin()
+        local freecamPos = GetFreecamRaycastData()
+        if not freecamPos then return nativeFailure('Position freecam indisponible') end
         local vehicle, distance = 0, math.huge
         for _, candidate in ipairs(GetGamePool('CVehicle')) do
             if Menu.Helpers.IsNetworkShootVehicle(candidate)
                 and Menu.Helpers.CanUseEffectVehicle(candidate)
                 and IsVehicleSeatFree(candidate, -1) then
-                local d = #(GetEntityCoords(candidate) - saved.coords)
+                local d = #(GetEntityCoords(candidate) - freecamPos)
                 if d < distance then vehicle, distance = candidate, d end
             end
         end
-        if vehicle == 0 then return nativeFailure('Aucune vraie voiture libre a proximite') end
+        if vehicle == 0 then return nativeFailure('Aucune vraie voiture libre pres de la freecam') end
         if not Menu.Helpers.RequestEffectVehicle(vehicle, 500) then
             return nativeFailure('Controle de la voiture refuse')
         end
@@ -25480,7 +25482,7 @@ CreateThread(function()
         local carVelocity = GetEntityVelocity(vehicle)
         local fired = false
         local ok, err = pcall(function()
-            local pos = saved.coords
+            local pos = freecamPos
             FreezeEntityPosition(saved.ped, false)
             if saved.vehicle ~= 0 then
                 TaskLeaveVehicle(saved.ped, saved.vehicle, 16)
