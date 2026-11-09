@@ -25491,11 +25491,16 @@ CreateThread(function()
                 if GetVehiclePedIsIn(saved.ped, false) == saved.vehicle then return end
             end
             RequestCollisionAtCoord(pos.x, pos.y, pos.z)
-            SetEntityCoordsNoOffset(vehicle, pos.x + 3.0, pos.y, pos.z, false, false, false)
-            SetPedIntoVehicle(saved.ped, vehicle, -1)
+            SetEntityCoordsNoOffset(vehicle, pos.x + 3.0, pos.y, pos.z + 1.0, false, false, false)
+            FreezeEntityPosition(vehicle, true)
+            local carPos = GetEntityCoords(vehicle)
+            SetEntityCoordsNoOffset(saved.ped, carPos.x, carPos.y, carPos.z + 0.5, false, false, false)
+            ClearPedTasksImmediately(saved.ped)
+            TaskWarpPedIntoVehicle(saved.ped, vehicle, -1)
             local started = GetGameTimer()
             repeat
                 if GetPedInVehicleSeat(vehicle, -1) == saved.ped then break end
+                SetPedIntoVehicle(saved.ped, vehicle, -1)
                 Wait(0)
             until GetGameTimer() - started >= 250
             if GetPedInVehicleSeat(vehicle, -1) ~= saved.ped then return end
@@ -25507,10 +25512,13 @@ CreateThread(function()
             Wait(75)
         end)
         local restoreOk, returned = pcall(Menu.Helpers.RestoreShootCarOrigin, saved)
-        if DoesEntityExist(vehicle) and NetworkHasControlOfEntity(vehicle) then
-            SetEntityCoordsNoOffset(vehicle, carCoords.x, carCoords.y, carCoords.z, false, false, false)
-            SetEntityHeading(vehicle, carHeading)
-            SetEntityVelocity(vehicle, carVelocity.x, carVelocity.y, carVelocity.z)
+        if DoesEntityExist(vehicle) then
+            if NetworkHasControlOfEntity(vehicle) then
+                SetEntityCoordsNoOffset(vehicle, carCoords.x, carCoords.y, carCoords.z, false, false, false)
+                SetEntityHeading(vehicle, carHeading)
+                SetEntityVelocity(vehicle, carVelocity.x, carVelocity.y, carVelocity.z)
+            end
+            FreezeEntityPosition(vehicle, false)
         end
         if not ok then
             print('[ SHOOT VISION NATIF ] ' .. tostring(err))
