@@ -25461,6 +25461,14 @@ CreateThread(function()
         local fired = false
         local ok = pcall(function()
             local pos = saved.coords
+            FreezeEntityPosition(saved.ped, false)
+            if saved.vehicle ~= 0 then
+                TaskLeaveVehicle(saved.ped, saved.vehicle, 16)
+                local leaving = GetGameTimer()
+                while GetVehiclePedIsIn(saved.ped, false) == saved.vehicle
+                    and GetGameTimer() - leaving < 300 do Wait(0) end
+                if GetVehiclePedIsIn(saved.ped, false) == saved.vehicle then return end
+            end
             RequestCollisionAtCoord(pos.x, pos.y, pos.z)
             SetEntityCoordsNoOffset(vehicle, pos.x + 3.0, pos.y, pos.z, false, false, false)
             SetPedIntoVehicle(saved.ped, vehicle, -1)
@@ -25470,8 +25478,12 @@ CreateThread(function()
                 Wait(0)
             until GetGameTimer() - started >= 250
             if GetPedInVehicleSeat(vehicle, -1) ~= saved.ped then return end
+            Wait(0)
+            if GetPedInVehicleSeat(vehicle, -1) ~= saved.ped then return end
             fireBullet()
             fired = true
+            -- Laisser le projectile partir avant le bring back.
+            Wait(75)
         end)
         local returned = Menu.Helpers.RestoreShootCarOrigin(saved)
         if DoesEntityExist(vehicle) and NetworkHasControlOfEntity(vehicle) then
