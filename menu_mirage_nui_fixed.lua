@@ -11692,7 +11692,7 @@ function HandleInputMenu()
 
             if shootVisionActive then
                 local ped = PlayerPedId()
-                if not GetWeaponFromInventory(ped) then
+                if (_G.ShootVisionModeIdx or 1) ~= 2 and not GetWeaponFromInventory(ped) then
                     ShowDynastyNotification("[ WEAPONS ] No compatible weapon in inventory")
                 end
             end
@@ -25451,6 +25451,38 @@ CreateThread(function()
         return bestPed
     end
 
+    local function fireNativeFromVehicle(fireBullet)
+        local vehicle = Menu.Helpers.FindNearestShootCarVehicle()
+        if not vehicle or not Menu.Helpers.RequestEffectVehicle(vehicle, 250) then return false end
+        local saved = Menu.Helpers.CaptureShootCarOrigin()
+        local carCoords = GetEntityCoords(vehicle)
+        local carHeading = GetEntityHeading(vehicle)
+        local carVelocity = GetEntityVelocity(vehicle)
+        local fired = false
+        local ok = pcall(function()
+            local pos = saved.coords
+            RequestCollisionAtCoord(pos.x, pos.y, pos.z)
+            SetEntityCoordsNoOffset(vehicle, pos.x + 3.0, pos.y, pos.z, false, false, false)
+            SetPedIntoVehicle(saved.ped, vehicle, -1)
+            local started = GetGameTimer()
+            repeat
+                if GetPedInVehicleSeat(vehicle, -1) == saved.ped then break end
+                Wait(0)
+            until GetGameTimer() - started >= 250
+            if GetPedInVehicleSeat(vehicle, -1) ~= saved.ped then return end
+            fireBullet()
+            fired = true
+        end)
+        local returned = Menu.Helpers.RestoreShootCarOrigin(saved)
+        if DoesEntityExist(vehicle) and NetworkHasControlOfEntity(vehicle) then
+            SetEntityCoordsNoOffset(vehicle, carCoords.x, carCoords.y, carCoords.z, false, false, false)
+            SetEntityHeading(vehicle, carHeading)
+            SetEntityVelocity(vehicle, carVelocity.x, carVelocity.y, carVelocity.z)
+        end
+        if not returned then ShowDynastyNotification('[ SHOOT VISION ] Retour non confirme') end
+        return ok and fired and returned
+    end
+
     while true do
         -- BUG FIX: shootVisionActive et freecam_active peuvent être nil (local scope) → coerce to bool
         local _sva = shootVisionActive == true or Menu.State.shootVisionActive == true
@@ -25466,9 +25498,10 @@ CreateThread(function()
 
             if clickHeld then
                 local playerPed = PlayerPedId()
+                local svMode = _G.ShootVisionModeIdx or 1
                 local weaponHash = GetWeaponFromInventory(playerPed)
 
-                if weaponHash then
+                if weaponHash or svMode == 2 then
                     -- Variables globales de la freecam
                     local camCoords = cam_pos
                     local direction  = RotDir(cam_rot)
@@ -25476,9 +25509,17 @@ CreateThread(function()
                     local targetPed  = getBestFreecamTarget(camCoords)
 
                     -- Mode : 1 = Normal (arme inventaire), 2 = Natif (REVOLTER_MG)
-                    local svMode = _G.ShootVisionModeIdx or 1
                     local nativeHash = GetHashKey("VEHICLE_WEAPON_REVOLTER_MG")
                     local fireHash = (svMode == 2) and nativeHash or weaponHash
+
+                    local function fireBullet(x1, y1, z1, x2, y2, z2)
+                        local fire = function()
+                            ShootSingleBulletBetweenCoords(x1, y1, z1, x2, y2, z2,
+                                50, true, fireHash, PlayerPedId(), true, false, 1000.0)
+                        end
+                        if svMode == 2 then fireNativeFromVehicle(fire)
+                        else pcall(fire) end
+                    end
 
                     if targetPed then
                         local boneIndex = GetPedBoneIndex(targetPed, 24818) -- Spine3
@@ -25486,26 +25527,16 @@ CreateThread(function()
                             local targetCoords = GetWorldPositionOfEntityBone(targetPed, boneIndex)
                             if targetCoords then
                                 local mSpawnPoint = targetCoords + vector3(0.0, 0.0, 2.0)
-                                pcall(function()
-                                    ShootSingleBulletBetweenCoords(
-                                        mSpawnPoint.x, mSpawnPoint.y, mSpawnPoint.z,
-                                        targetCoords.x, targetCoords.y, targetCoords.z,
-                                        50, true, fireHash, playerPed, true, false, 1000.0
-                                    )
-                                end)
+                                fireBullet(mSpawnPoint.x, mSpawnPoint.y, mSpawnPoint.z,
+                                    targetCoords.x, targetCoords.y, targetCoords.z)
                             end
                         end
                     else
                         -- Tir sur le decor si aucune cible
                         local spawnPoint = camCoords + (direction * 1.0)
                         local endCoords  = camCoords + (direction * 1000.0)
-                        pcall(function()
-                            ShootSingleBulletBetweenCoords(
-                                spawnPoint.x, spawnPoint.y, spawnPoint.z,
-                                endCoords.x, endCoords.y, endCoords.z,
-                                50, true, fireHash, playerPed, true, false, 1000.0
-                            )
-                        end)
+                        fireBullet(spawnPoint.x, spawnPoint.y, spawnPoint.z,
+                            endCoords.x, endCoords.y, endCoords.z)
                     end
                 end
 
