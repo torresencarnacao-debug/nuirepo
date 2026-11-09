@@ -20608,8 +20608,8 @@ do
                         SetEntityCoordsNoOffset(candidate,launch.x,launch.y,launch.z,false,false,false)
                         SetEntityRotation(candidate,rotation.x,0.0,rotation.z,2,true)
                         SetEntityAngularVelocity(candidate,0.0,0.0,0.0)
-                        local scale=vehicleLaunchScale()
-                        SetEntityVelocity(candidate,direction.x*120.0*scale,direction.y*120.0*scale,direction.z*120.0*scale)
+                        local speed=150.0*math.max(vehicleLaunchScale(),0.16)
+                        SetEntityVelocity(candidate,direction.x*speed,direction.y*speed,direction.z*speed)
                     else
                         recent[candidate]=GetGameTimer()+750
                         if not _G._shootCarNearestPending then ShowDynastyNotification('[ SHOOT CAR ] Prise refusee') end
