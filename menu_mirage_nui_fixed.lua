@@ -25499,7 +25499,7 @@ CreateThread(function()
                 Wait(0)
             until GetGameTimer() - started >= 250
             if GetPedInVehicleSeat(vehicle, -1) ~= saved.ped then return end
-            Wait(0)
+            Wait(60)
             if GetPedInVehicleSeat(vehicle, -1) ~= saved.ped then return end
             fireBullet()
             fired = true
