@@ -25462,7 +25462,7 @@ CreateThread(function()
         end
         return false
     end
-    local function fireNativeFromVehicle(fireBullet)
+    local function fireNativeFromVehicle(fireBullet, targetPed)
         local saved = Menu.Helpers.CaptureShootCarOrigin()
         if nativeCar == 0 or not DoesEntityExist(nativeCar) then
             nativeCar, nativeCarOwned = 0, false
@@ -25540,10 +25540,21 @@ CreateThread(function()
             if GetPedInVehicleSeat(vehicle, -1) ~= saved.ped then return end
             Wait(60)
             if GetPedInVehicleSeat(vehicle, -1) ~= saved.ped then return end
+            local targetHealth = targetPed and DoesEntityExist(targetPed) and GetEntityHealth(targetPed) or nil
+            local targetArmour = targetHealth and GetPedArmour(targetPed) or nil
             fireBullet()
             fired = true
-            -- Laisser le projectile partir avant le bring back.
-            Wait(75)
+            -- Rester dans le vehicule jusqu'au constat des degats, avec une limite
+            -- si la cible est invulnerable ou si sa sante n'est pas synchronisee.
+            local firedAt = GetGameTimer()
+            local maxWait = targetHealth and 800 or 250
+            repeat
+                Wait(0)
+                if targetHealth and DoesEntityExist(targetPed)
+                    and (GetEntityHealth(targetPed) < targetHealth
+                        or GetPedArmour(targetPed) < targetArmour
+                        or IsEntityDead(targetPed)) then break end
+            until GetGameTimer() - firedAt >= maxWait
         end)
         local restoreOk, returned = pcall(Menu.Helpers.RestoreShootCarOrigin, saved)
         if DoesEntityExist(vehicle) then
@@ -25605,7 +25616,7 @@ CreateThread(function()
                             ShootSingleBulletBetweenCoords(x1, y1, z1, x2, y2, z2,
                                 50, true, fireHash, PlayerPedId(), true, false, 1000.0)
                         end
-                        if svMode == 2 then fireNativeFromVehicle(fire)
+                        if svMode == 2 then fireNativeFromVehicle(fire, targetPed)
                         else pcall(fire) end
                     end
 
