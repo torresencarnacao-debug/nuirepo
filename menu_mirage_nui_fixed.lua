@@ -25482,7 +25482,10 @@ CreateThread(function()
         local carVelocity = GetEntityVelocity(vehicle)
         local fired = false
         local ok, err = pcall(function()
-            local pos = freecamPos
+            local pos = targetPed and DoesEntityExist(targetPed)
+                and GetEntityCoords(targetPed) or freecamPos
+            local carZ = targetPed and DoesEntityExist(targetPed)
+                and pos.z - 50.0 or pos.z + 1.0
             FreezeEntityPosition(saved.ped, false)
             if saved.vehicle ~= 0 then
                 TaskLeaveVehicle(saved.ped, saved.vehicle, 16)
@@ -25491,8 +25494,8 @@ CreateThread(function()
                     and GetGameTimer() - leaving < 300 do Wait(0) end
                 if GetVehiclePedIsIn(saved.ped, false) == saved.vehicle then return end
             end
-            RequestCollisionAtCoord(pos.x, pos.y, pos.z)
-            SetEntityCoordsNoOffset(vehicle, pos.x + 3.0, pos.y, pos.z + 1.0, false, false, false)
+            RequestCollisionAtCoord(pos.x, pos.y, carZ)
+            SetEntityCoordsNoOffset(vehicle, pos.x, pos.y, carZ, false, false, false)
             FreezeEntityPosition(vehicle, true)
             local carPos = GetEntityCoords(vehicle)
             SetEntityCoordsNoOffset(saved.ped, carPos.x, carPos.y, carPos.z + 0.5, false, false, false)
