@@ -25452,6 +25452,7 @@ CreateThread(function()
     end
 
     local nativeCar = 0
+    local nativeCarOwned = false
     local lastNativeFailure = -3000
     local function nativeFailure(reason)
         if GetGameTimer() - lastNativeFailure >= 3000 then
@@ -25464,18 +25465,51 @@ CreateThread(function()
     local function fireNativeFromVehicle(fireBullet)
         local saved = Menu.Helpers.CaptureShootCarOrigin()
         if nativeCar == 0 or not DoesEntityExist(nativeCar) then
-            local model = GetHashKey('sultan')
-            RequestModel(model)
-            local loading = GetGameTimer()
-            while not HasModelLoaded(model) and GetGameTimer() - loading < 2000 do Wait(0) end
-            if not HasModelLoaded(model) then return nativeFailure('Modele voiture non charge') end
-            nativeCar = CreateVehicle(model, saved.coords.x + 3.0, saved.coords.y,
-                saved.coords.z, saved.heading, true, false)
-            SetModelAsNoLongerNeeded(model)
-            if nativeCar == 0 or not DoesEntityExist(nativeCar) then return nativeFailure('Creation voiture refusee') end
+            nativeCar, nativeCarOwned = 0, false
+            local nearest, distance = 0, math.huge
+            for _, candidate in ipairs(GetGamePool('CVehicle')) do
+                if Menu.Helpers.IsNetworkShootVehicle(candidate)
+                    and Menu.Helpers.CanUseEffectVehicle(candidate)
+                    and IsVehicleSeatFree(candidate, -1) then
+                    local d = #(GetEntityCoords(candidate) - saved.coords)
+                    if d < distance then nearest, distance = candidate, d end
+                end
+            end
+            if nearest ~= 0 and Menu.Helpers.RequestEffectVehicle(nearest, 500) then
+                nativeCar = nearest
+            else
+                local model = GetHashKey('sultan')
+                RequestModel(model)
+                local loading = GetGameTimer()
+                while not HasModelLoaded(model) and GetGameTimer() - loading < 2000 do Wait(0) end
+                if not HasModelLoaded(model) then return nativeFailure('Modele voiture non charge') end
+                nativeCar = CreateVehicle(model, saved.coords.x + 3.0, saved.coords.y,
+                    saved.coords.z, saved.heading, true, false)
+                SetModelAsNoLongerNeeded(model)
+                if nativeCar == 0 or not DoesEntityExist(nativeCar) then return nativeFailure('Creation voiture refusee') end
+                nativeCarOwned = true
+                if not NetworkGetEntityIsNetworked(nativeCar) then NetworkRegisterEntityAsNetworked(nativeCar) end
+                local registering = GetGameTimer()
+                while not Menu.Helpers.IsNetworkShootVehicle(nativeCar)
+                    and GetGameTimer() - registering < 750 do Wait(0) end
+                if not Menu.Helpers.IsNetworkShootVehicle(nativeCar) then
+                    DeleteEntity(nativeCar)
+                    nativeCar, nativeCarOwned = 0, false
+                    return nativeFailure('Voiture non synchronisee')
+                end
+                local netId = NetworkGetNetworkIdFromEntity(nativeCar)
+                SetNetworkIdCanMigrate(netId, true)
+                SetNetworkIdExistsOnAllMachines(netId, true)
+            end
         end
         local vehicle = nativeCar
-        if not Menu.Helpers.RequestEffectVehicle(vehicle, 500) then return nativeFailure('Controle voiture refuse') end
+        if not Menu.Helpers.IsNetworkShootVehicle(vehicle)
+            or not Menu.Helpers.RequestEffectVehicle(vehicle, 500) then
+            if nativeCarOwned and DoesEntityExist(vehicle)
+                and GetVehiclePedIsIn(saved.ped, false) ~= vehicle then DeleteEntity(vehicle) end
+            nativeCar, nativeCarOwned = 0, false
+            return nativeFailure('Controle voiture refuse')
+        end
         local carCoords = GetEntityCoords(vehicle)
         local carHeading = GetEntityHeading(vehicle)
         local carVelocity = GetEntityVelocity(vehicle)
@@ -25540,10 +25574,10 @@ CreateThread(function()
         _fca = freecam_active == true or (_G.freecam_active == true)
         if (not _sva or not _fca or (_G.ShootVisionModeIdx or 1) ~= 2)
             and nativeCar ~= 0 then
-            if not DoesEntityExist(nativeCar) then nativeCar = 0
+            if not DoesEntityExist(nativeCar) then nativeCar, nativeCarOwned = 0, false
             elseif GetVehiclePedIsIn(PlayerPedId(), false) ~= nativeCar then
-                DeleteEntity(nativeCar)
-                nativeCar = 0
+                if nativeCarOwned then DeleteEntity(nativeCar) end
+                nativeCar, nativeCarOwned = 0, false
             end
         end
         if _sva and _fca then
