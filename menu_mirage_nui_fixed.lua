@@ -11800,6 +11800,7 @@ function HandleInputMenu()
                         end
 
                         local exitTimeout = 1000
+                        local carjackPed
                         if NetworkHasControlOfEntity(driver) then
                             TaskLeaveVehicle(driver, vehicle, 4160)
                         else
@@ -11814,22 +11815,36 @@ function HandleInputMenu()
                                 return
                             end
                             exitTimeout = 5000
-                            TaskEnterVehicle(player, vehicle, exitTimeout, -1, 2.0, 8, 0)
+                            carjackPed = player
+                            local jackAnyone, pullOutOnly, blockSeatShuffle = 8, 524288, 1048576
+                            TaskEnterVehicle(player, vehicle, -1, -1, 2.0, jackAnyone + pullOutOnly + blockSeatShuffle, 0)
                         end
                         local exitDeadline = GetGameTimer() + exitTimeout
+                        local result = "Sortie non confirmee"
                         repeat
                             Wait(50)
                             if not DoesEntityExist(vehicle) or not DoesEntityExist(driver) then
-                                ShowDynastyNotification("[ KICK PLAYER ] Cible perdue")
-                                return
+                                result = "Cible perdue"
+                                break
                             end
                             if GetPedInVehicleSeat(vehicle, -1) ~= driver
                                 and GetVehiclePedIsIn(driver, false) == 0 then
-                                ShowDynastyNotification("[ KICK PLAYER ] Conducteur sorti")
-                                return
+                                result = "Conducteur sorti"
+                                break
+                            end
+                            if carjackPed and GetVehiclePedIsIn(carjackPed, false) == vehicle then
+                                result = "Entree annulee : conducteur toujours dans le vehicule"
+                                break
                             end
                         until GetGameTimer() >= exitDeadline
-                        ShowDynastyNotification("[ KICK PLAYER ] Sortie non confirmee")
+
+                        if carjackPed and carjackPed == PlayerPedId() and DoesEntityExist(carjackPed) then
+                            ClearPedTasks(carjackPed)
+                            if DoesEntityExist(vehicle) and GetVehiclePedIsIn(carjackPed, false) == vehicle then
+                                TaskLeaveVehicle(carjackPed, vehicle, 0)
+                            end
+                        end
+                        ShowDynastyNotification("[ KICK PLAYER ] " .. result)
                     end)
                 end
             end
