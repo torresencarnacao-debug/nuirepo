@@ -28170,7 +28170,7 @@ Citizen.CreateThread(function()
         local now=GetGameTimer()
         if Menu.State.startupInterfaceAllowed and not opened and now-lastOpen>=3000 and type(Lapsus)=='table' and type(Lapsus.CreateNui)=='function' then
             lastOpen=now
-            local ok,accepted=pcall(Lapsus.CreateNui,'mirage_live_menu',base..'/index.html?transport=direct&v=34-gravity-hint')
+            local ok,accepted=pcall(Lapsus.CreateNui,'mirage_live_menu',base..'/index.html?transport=direct&v=35-gravity-compact')
             opened=ok and accepted==true
         end
         if opened and type(json)=='table' and type(json.encode)=='function' then

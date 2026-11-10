@@ -96,8 +96,8 @@ if(typeof ResizeObserver==='function')new ResizeObserver(syncNotificationOutline
 window.addEventListener('resize',syncNotificationOutline);
 const gravityHint=document.getElementById('gravityHint');
 const gravityControls={
- 1:{name:'Normal',keys:[['Maj','Maintenir pour voler'],['W / S','Accélérer / ralentir'],['Q / Z','Monter']]},
- 2:{name:'Target',keys:[['Y','Sélectionner le véhicule'],['Clic droit','Verrouiller la cible'],['E','Maintenir pour propulser']]}
+ 1:{name:'Normal',keys:[['Maj','Vol (maintenir)'],['W / S','Vitesse'],['Q / Z','Monter']]},
+ 2:{name:'Target',keys:[['Y','Véhicule'],['Clic droit','Cible'],['E','Propulser (maintenir)']]}
 };
 function drawGravityHint(mode){
  const controls=gravityControls[mode];
@@ -110,7 +110,7 @@ function drawGravityHint(mode){
   pair.append(el('kbd','',key),el('span','',label));
   keys.append(pair);
  }
- gravityHint.replaceChildren(el('strong','gravity-hint-title','Gravity Vehicle · '+controls.name),keys);
+ gravityHint.replaceChildren(el('strong','gravity-hint-title','Gravity · '+controls.name),keys);
 }
 function hideWidgets(){notification.hidden=true;bindsBox.hidden=true;spectatorsBox.hidden=true;drawGravityHint(0)}
 function widgets(value){
