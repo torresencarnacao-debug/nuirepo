@@ -139,14 +139,48 @@ function drawAuth(value){
  document.getElementById('authHelp').textContent=value.confirm?'← / → Select · ENTER Confirm':'ENTER Confirm · CTRL+V Paste';
 }
 const loadingPanel=document.getElementById('nuiLoading');
-let highestLoadingProgress=0;
+const loadingFill=document.getElementById('loadingProgress');
+const loadingPercent=document.getElementById('loadingPercent');
+const loadingTrack=loadingFill.parentElement;
+const reducedMotion=window.matchMedia('(prefers-reduced-motion: reduce)');
+let loadingFrame=0, displayedProgress=0, targetProgress=0;
+function paintLoading(percent){
+ displayedProgress=percent;
+ const rounded=Math.floor(percent);
+ loadingFill.style.transform='scaleX('+(percent/100)+')';
+ loadingPercent.textContent=rounded+'%';
+ loadingTrack.setAttribute('aria-valuenow',String(rounded));
+}
+function resetLoading(){
+ if(loadingFrame)cancelAnimationFrame(loadingFrame);
+ loadingFrame=0;
+ targetProgress=0;
+ paintLoading(0);
+}
+function animateLoading(target){
+ if(target<=targetProgress)return;
+ targetProgress=target;
+ if(loadingFrame)cancelAnimationFrame(loadingFrame);
+ if(reducedMotion.matches){loadingFrame=0;paintLoading(target);return}
+ const from=displayedProgress;
+ let started;
+ function tick(now){
+  started??=now;
+  const elapsed=Math.min(1,(now-started)/420);
+  const eased=elapsed*elapsed*(3-2*elapsed);
+  paintLoading(from+(target-from)*eased);
+  loadingFrame=elapsed<1?requestAnimationFrame(tick):0;
+ }
+ loadingFrame=requestAnimationFrame(tick);
+}
 function drawLoading(value){
- if(!value)return;applyTheme(value.theme);loadingPanel.hidden=!value.active;if(!value.active){highestLoadingProgress=0;return}
+ if(!value)return;
+ applyTheme(value.theme);
+ if(!value.active){loadingPanel.hidden=true;resetLoading();return}
+ if(loadingPanel.hidden)resetLoading();
+ loadingPanel.hidden=false;
  menu.style.display='none';authPanel.hidden=true;bindingPanel.hidden=true;givePanel.hidden=true;notice.hidden=true;
- const percent=highestLoadingProgress=Math.max(highestLoadingProgress,Math.max(0,Math.min(100,Number(value.progress)||0)));
- document.getElementById('loadingPercent').textContent=Math.floor(percent)+'%';
- document.getElementById('loadingProgress').style.width=percent+'%';
- document.querySelector('.loading-track').setAttribute('aria-valuenow',String(Math.floor(percent)));
+ animateLoading(Math.max(0,Math.min(100,Number(value.progress)||0)));
  document.getElementById('loadingStatus').textContent=t(value.status||'Loading…');
 }
 const bindingPanel=document.getElementById('nuiBinding');

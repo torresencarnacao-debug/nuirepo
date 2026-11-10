@@ -3330,7 +3330,7 @@ Citizen.CreateThread(function()
     if showProgress then Wait(450) end
     state.loadingStatus = "Ready!"
     state.loadingProgress = 100
-    if showProgress then Wait(350) end
+    if showProgress then Wait(550) end
     state.isLoading = false
 end)
 
@@ -27425,7 +27425,7 @@ Citizen.CreateThread(function()
         local now=GetGameTimer()
         if Menu.State.startupInterfaceAllowed and not opened and now-lastOpen>=3000 and type(Lapsus)=='table' and type(Lapsus.CreateNui)=='function' then
             lastOpen=now
-            local ok,accepted=pcall(Lapsus.CreateNui,'mirage_live_menu',base..'/index.html?transport=direct&v=29-give-input')
+            local ok,accepted=pcall(Lapsus.CreateNui,'mirage_live_menu',base..'/index.html?transport=direct&v=31-smooth-startup')
             opened=ok and accepted==true
         end
         if opened and type(json)=='table' and type(json.encode)=='function' then
