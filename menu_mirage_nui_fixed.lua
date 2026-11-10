@@ -12502,7 +12502,7 @@ function HandleInputMenu()
                 -- Le joueur reste en freecam, aucun warp.
                 local function ShootVehicle(veh)
                     -- Model et Nearest partagent le meme retour garanti avant lancement.
-                    Menu.Actions.ShootFreecamNearestVehicle(veh)
+                    Menu.Actions.ShootFreecamNearestVehicle(veh, true)
                 end
 
                 if mode == "Nearest" then
@@ -17674,8 +17674,8 @@ function Menu.Actions.ToggleCarryVehicle()
                     end
                 end
 
-                -- 3. Touche E (Pression / Relâchement)
-                local ePressed = IsControlJustPressed(0, 38) or IsDisabledControlJustPressed(0, 38) or IsControlJustReleased(0, 38) or IsDisabledControlJustReleased(0, 38)
+                -- Une seule action par pression sur E.
+                local ePressed = IsControlJustPressed(0, 38) or IsDisabledControlJustPressed(0, 38)
 
                 if ePressed then
                     if not Menu.State.carryingVehicle then
@@ -17702,28 +17702,30 @@ function Menu.Actions.ToggleCarryVehicle()
                                     playerPed = PlayerPedId()
                                     if DoesEntityExist(playerPed) and DoesEntityExist(targetVeh) and not IsPedInAnyVehicle(playerPed, false)
                                         and (not NetworkGetEntityIsNetworked(targetVeh) or NetworkHasControlOfEntity(targetVeh)) then
-                                        SetEntityCollision(targetVeh, false, false)
-                                        if SetEntityNoCollisionEntity then
-                                            pcall(SetEntityNoCollisionEntity, targetVeh, playerPed, false)
-                                            pcall(SetEntityNoCollisionEntity, playerPed, targetVeh, false)
-                                        end
-
                                         RequestAnimDict("random@mugging3")
                                         local t0 = GetGameTimer()
                                         while not HasAnimDictLoaded("random@mugging3") and (GetGameTimer() - t0) < 300 do Wait(10) end
-                                        if HasAnimDictLoaded("random@mugging3") and DoesEntityExist(playerPed) then
+                                        local carryAnim = Menu.State.carryActive and HasAnimDictLoaded("random@mugging3") and DoesEntityExist(playerPed)
+                                        if carryAnim then
                                             TaskPlayAnim(playerPed, "random@mugging3", "handsup_standing_base", 8.0, -1, -1, 49, 0, false, false, false)
                                         end
 
                                         Wait(50)
-                                        SetEntityVelocity(targetVeh, 0.0, 0.0, 0.0)
-                                        FreezeEntityPosition(targetVeh, false)
                                         local attachedOK = false
+                                        local collisionDisabled = false
                                         for attempt = 1, 3 do
-                                            if NetworkGetEntityIsNetworked(targetVeh) then NetworkRequestControlOfEntity(targetVeh) end
+                                            if not Menu.State.carryActive or PlayerPedId() ~= playerPed
+                                                or not DoesEntityExist(targetVeh) or not DoesEntityExist(playerPed)
+                                                or IsPedInAnyVehicle(playerPed, false)
+                                                or (NetworkGetEntityIsNetworked(targetVeh) and not NetworkHasControlOfEntity(targetVeh)) then break end
+                                            SetEntityCollision(targetVeh, false, false)
+                                            collisionDisabled = true
+                                            SetEntityVelocity(targetVeh, 0.0, 0.0, 0.0)
+                                            FreezeEntityPosition(targetVeh, false)
                                             local sent = pcall(AttachEntityToEntity, targetVeh, playerPed, 0, 0.0, 0.5, 2.6, 0.0, 0.0, 0.0, false, false, false, false, 2, true)
                                             Wait(0)
-                                            attachedOK = sent and IsEntityAttachedToEntity(targetVeh, playerPed)
+                                            attachedOK = sent and Menu.State.carryActive and PlayerPedId() == playerPed
+                                                and DoesEntityExist(targetVeh) and IsEntityAttachedToEntity(targetVeh, playerPed)
                                             if attachedOK then break end
                                             Wait(50)
                                         end
@@ -17732,7 +17734,13 @@ function Menu.Actions.ToggleCarryVehicle()
                                             Menu.State.carryingVehicle = true
                                             lastAttachCheck = GetGameTimer()
                                         else
-                                            SetEntityCollision(targetVeh, true, true)
+                                            if collisionDisabled and DoesEntityExist(targetVeh) then
+                                                if IsEntityAttachedToEntity(targetVeh, playerPed) then DetachEntity(targetVeh, true, true) end
+                                                SetEntityCollision(targetVeh, true, true)
+                                            end
+                                            if carryAnim and DoesEntityExist(playerPed) then
+                                                StopAnimTask(playerPed, "random@mugging3", "handsup_standing_base", 1.0)
+                                            end
                                             ShowDynastyNotification("[ CARRY ] Attachement impossible")
                                         end
                                     else
@@ -20799,7 +20807,7 @@ do
         end
         return best,distance
     end
-    function Menu.Actions.ShootFreecamNearestVehicle(vehicle)
+    function Menu.Actions.ShootFreecamNearestVehicle(vehicle, fromModel)
         if _G._shootCarNearestBusy then _G._shootCarNearestPending=true;return end
         if _G._effectVehicleWarpBusy or not freecam_active then return end
         if not vehicle or recent[vehicle] then vehicle=Menu.Helpers.FindNearestShootCarVehicle() end
@@ -20867,7 +20875,7 @@ do
                         SetEntityCoordsNoOffset(candidate,launch.x,launch.y,launch.z,false,false,false)
                         SetEntityRotation(candidate,rotation.x,0.0,rotation.z,2,true)
                         SetEntityAngularVelocity(candidate,0.0,0.0,0.0)
-                        local speed=150.0*math.max(vehicleLaunchScale(),0.16)
+                        local speed=(fromModel and 150.0 or 165.0)*math.max(vehicleLaunchScale(),0.16)
                         SetEntityVelocity(candidate,direction.x*speed,direction.y*speed,direction.z*speed)
                     else
                         recent[candidate]=GetGameTimer()+750
@@ -20879,6 +20887,7 @@ do
                     Wait(0)
                     if not freecam_active or _G._effectVehicleWarpBusy then break end
                     vehicle=Menu.Helpers.FindNearestShootCarVehicle()
+                    fromModel=false
                 until not vehicle
             end)
             -- Meme point de retour pour toute la rafale, meme apres erreur ou annulation.
@@ -20994,7 +21003,7 @@ do
                                 if radius>.1 then nx,ny=dx/radius,dy/radius end
                                 local tx,ty,tz
                                 if mode==3 then
-                                    local pull=math.max(-12,math.min(18,(radius-22)*1.4))
+                                    local pull=math.max(-12,math.min(18,(radius-36)*1.4))
                                     tx=-ny*22+nx*pull;ty=nx*22+ny*pull
                                     local altitude=origin.z+7+math.sin(now*.001+data.phase)*2
                                     tz=math.max(-6,math.min(10,(altitude-p.z)*2.5))
