@@ -94,10 +94,29 @@ function syncNotificationOutline(){
 }
 if(typeof ResizeObserver==='function')new ResizeObserver(syncNotificationOutline).observe(notification);
 window.addEventListener('resize',syncNotificationOutline);
-function hideWidgets(){notification.hidden=true;bindsBox.hidden=true;spectatorsBox.hidden=true}
+const gravityHint=document.getElementById('gravityHint');
+const gravityControls={
+ 1:{name:'Normal',keys:[['Maj','Maintenir pour voler'],['W / S','Accélérer / ralentir'],['Q / Z','Monter']]},
+ 2:{name:'Target',keys:[['Y','Sélectionner le véhicule'],['Clic droit','Verrouiller la cible'],['E','Maintenir pour propulser']]}
+};
+function drawGravityHint(mode){
+ const controls=gravityControls[mode];
+ gravityHint.hidden=!controls;
+ if(!controls||gravityHint.dataset.mode===controls.name)return;
+ gravityHint.dataset.mode=controls.name;
+ const keys=el('div','gravity-hint-keys');
+ for(const [key,label] of controls.keys){
+  const pair=el('span','gravity-hint-key');
+  pair.append(el('kbd','',key),el('span','',label));
+  keys.append(pair);
+ }
+ gravityHint.replaceChildren(el('strong','gravity-hint-title','Gravity Vehicle · '+controls.name),keys);
+}
+function hideWidgets(){notification.hidden=true;bindsBox.hidden=true;spectatorsBox.hidden=true;drawGravityHint(0)}
 function widgets(value){
  if(value)applyTheme(value.theme);
  if(!value||!value.enabled){hideWidgets();return}
+ drawGravityHint(value.gravityMode);
  const binds=Array.isArray(value.binds)?value.binds:[],spectators=Array.isArray(value.spectators)?value.spectators:[];
  bindsBox.hidden=!value.bindsVisible||!binds.length;
  const bindRows=document.getElementById('bindRows');const bindsSignature=JSON.stringify(binds);

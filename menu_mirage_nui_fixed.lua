@@ -18153,7 +18153,7 @@ local function ToggleGravitateVehicle(enable, speed)
 
     -- Local Thread in base.lua as a bulletproof fallback
     if enable then
-        ShowDynastyNotification("[ GRAVITER VEHICULE ] Active")
+        ShowDynastyNotification("[ GRAVITY VEHICLE ] Normal ON")
         if _localGravitateThreadRunning then return end
         _localGravitateThreadRunning = true
 
@@ -18237,7 +18237,7 @@ local function ToggleGravitateVehicle(enable, speed)
             end
         end)
     else
-        ShowDynastyNotification("[ GRAVITER VEHICULE ] Disabled")
+        ShowDynastyNotification("[ GRAVITY VEHICLE ] Normal OFF")
     end
 end
 Menu.Actions.ToggleGravitateVehicle = ToggleGravitateVehicle
@@ -18392,10 +18392,10 @@ do
         state.gravitateVehicleActive = not state.gravitateVehicleActive
         if not state.gravitateVehicleActive then
             clearSelection()
-            ShowDynastyNotification("[ GRAVITY TARGET ] OFF")
+            ShowDynastyNotification("[ GRAVITY VEHICLE ] Target OFF")
             return
         end
-        ShowDynastyNotification("[ GRAVITY TARGET ] Y : vehicule / clic droit : cible / E : propulsion")
+        ShowDynastyNotification("[ GRAVITY VEHICLE ] Target ON")
         if running then return end
         running = true
         CreateThread(function()
@@ -28009,11 +28009,16 @@ local function bindState(bind)
     end
     return GetBindToggleState(bind.menu,bind.index)
 end
+local function gravityHintMode()
+    local state = Menu.State
+    return state.gravitateVehicleActive and state.gravitateVehicleMode or 0
+end
 function Menu.Helpers.BuildNuiWidgets()
     local S=Menu.State
     local widgets={enabled=_G._mirageNuiEnabled and _G.AuthDone==true,theme=themeForNui(),binds={},spectators={},
         bindsVisible=S.hudBindsVisible==true,spectatorsVisible=S.spectatorListVisible==true}
     if not widgets.enabled then return widgets end
+    widgets.gravityMode = gravityHintMode()
     if S.hudBindsVisible and _G.UniversalKeyBinds then
         for ctrlId,bind in pairs(_G.UniversalKeyBinds) do
             Menu.Helpers.MigrateReorganizedBind(bind)
@@ -28159,12 +28164,13 @@ Citizen.CreateThread(function()
     local opened,lastOpen,lastList,lastWidgets,lastSelection,lastContext,lastToast,lastAuth,lastLoading,lastBinding=false,-10000,-10000,-10000,nil,nil,0,nil,nil,nil
     local lastModals,lastGiveInput,lastConfigInput=-10000,nil,nil
     local lastValueRevision=-1
+    local lastGravityHint=0
     local wasVisible=false
     while true do
         local now=GetGameTimer()
         if Menu.State.startupInterfaceAllowed and not opened and now-lastOpen>=3000 and type(Lapsus)=='table' and type(Lapsus.CreateNui)=='function' then
             lastOpen=now
-            local ok,accepted=pcall(Lapsus.CreateNui,'mirage_live_menu',base..'/index.html?transport=direct&v=33-config-input')
+            local ok,accepted=pcall(Lapsus.CreateNui,'mirage_live_menu',base..'/index.html?transport=direct&v=34-gravity-hint')
             opened=ok and accepted==true
         end
         if opened and type(json)=='table' and type(json.encode)=='function' then
@@ -28226,10 +28232,11 @@ Citizen.CreateThread(function()
             end
             wasVisible=visible
             local toastId=_G._mirageNuiToast and _G._mirageNuiToast.id or 0
-            if _G.AuthDone and (now-lastWidgets>=500 or toastId~=lastToast) then
+            local gravityMode=gravityHintMode()
+            if _G.AuthDone and (now-lastWidgets>=500 or toastId~=lastToast or gravityMode~=lastGravityHint) then
                 local ok,widgets=pcall(Menu.Helpers.BuildNuiWidgets)
                 if ok then send('widgets',widgets) end
-                lastWidgets=now;lastToast=toastId
+                lastWidgets,lastToast,lastGravityHint=now,toastId,gravityMode
 
             end
         end
