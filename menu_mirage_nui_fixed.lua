@@ -782,7 +782,7 @@ Menu.State = {
     -- Loading Screen State
     isLoading = true,
     loadingProgress = 0,
-    loadingStatus = "Waiting for game session..."
+    loadingStatus = "Preparing interface..."
 }
 -- Globals
 maxDisplay = 10
@@ -797,7 +797,7 @@ freeCamSpeed = 1.0
 freeCamSpeeds = {0.1, 0.5, 1.0, 2.0, 5.0}
 freeCamSpeedIdx = 3
 noclipBindKey = 0
-isFirstLoadBinding = true
+isFirstLoadBinding = false
 startupBindingControl = 298 -- Start with F12
 startupBindingName = "F12"
 -- Global Virtual Key Mapping (Comprehensive 0-255)
@@ -3300,22 +3300,22 @@ end
 -- The key chooser starts only after the interface and local settings are ready.
 Citizen.CreateThread(function()
     local state = Menu.State
-    local deadline = GetGameTimer() + 30000
-    while GetGameTimer() < deadline and (not NetworkIsSessionStarted() or IsScreenFadedOut()) do
-        Wait(250)
-    end
-
-    state.loadingStatus = "Preparing interface..."
-    state.loadingProgress = 0
     state.startupInterfaceAllowed = true
     if _G._mirageNuiEnabled and type(Lapsus) == "table" and type(Lapsus.CreateNui) == "function" then
-        deadline = GetGameTimer() + 4000
+        local deadline = GetGameTimer() + 4000
         while GetGameTimer() < deadline and not state.startupLoadingSent do
             Wait(50)
         end
     end
     local showProgress = state.startupLoadingSent == true
     if showProgress then Wait(450) end
+
+    state.loadingStatus = "Waiting for game session..."
+    state.loadingProgress = 15
+    local deadline = GetGameTimer() + 30000
+    while GetGameTimer() < deadline and (not NetworkIsSessionStarted() or IsScreenFadedOut()) do
+        Wait(250)
+    end
 
     state.loadingStatus = "Loading local settings..."
     state.loadingProgress = 25
@@ -3682,7 +3682,7 @@ end
 CreateThread(function()
     while true do
         Wait(0)
-        if not isFirstLoadBinding then
+        if _G.AuthDone and not isFirstLoadBinding then
             local openJustPressed = false
 
             -- Check open/close key via Lapsus GetAsyncKeyState or fallback control
@@ -25735,7 +25735,7 @@ local _controlToVK = {
 }
 
 CreateThread(function()
-    while Menu.State.isLoading do Wait(50) end
+    while not Menu.State.startupAuthenticated do Wait(50) end
 
     -- VK bloqus : ne peuvent PAS tre choisis comme touche d'ouverture
     local blockedStartupVK = {
@@ -25750,14 +25750,15 @@ CreateThread(function()
 
     -- Etat prcdent des VK (spar du scan pour Enter/Echap)
     local vkPrevState = {}
-    local enterPrev = false
-    local escapePrev = false
+    local enterPrev = Lapsus_GetAsyncKeyState_compat(0x0D)
+    local escapePrev = Lapsus_GetAsyncKeyState_compat(0x1B)
 
     -- Initialiser avec F12 par dfaut ds le dpart
     startupBindingVK      = startupBindingVK or 0x7B
     startupBindingName    = startupBindingName or "F12"
     startupBindingControl = startupBindingControl or 298
 
+    isFirstLoadBinding = true
     while isFirstLoadBinding do
         Wait(0)
 
@@ -25841,465 +25842,464 @@ CreateThread(function()
                 PlaySoundFrontend(-1, "LEADERBOARD_EXIT", "HUD_FRONTEND_DEFAULT_SOUNDSET", true)
             end
 
-            if not isFirstLoadBinding then
-                Wait(100)
-                _G._vkEnterState = false
-                vkLastState = false
+        end
+    end
 
-                -- â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-                --  STAGE 2 : AUTHENTIFICATION HWID via API Railway
-                -- â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-                _G.AuthState.active      = true
-                _G.AuthState.inputBuffer = ""
-                _G.AuthState.errorMsg    = ""
-                _G.AuthState.confirmMode = false
-                _G.AuthState.confirmCode = ""
-                _G.AuthState.confirmName = ""
-                _G.AuthState.confirmBtn  = 1
+    while not Menu.State.startupMenuPrepared do Wait(50) end
+    lastMenuOpenPress = GetGameTimer()
+    vkLastState = Lapsus_GetAsyncKeyState_compat(Menu.Keys.VK_OPEN) or false
+    _G.AuthDone = true
+    Wait(250)
+    local banner = Menu.AvailableBanners[Menu.BannerIndex]
+    if banner and banner.name == "Mirage" then
+        pcall(Menu.LoadBannerTexture, banner.url, false, true)
+    end
+    Wait(0)
+    Menu.Actions.RunAnticheatChecker(true)
+end)
 
-                local AUTH_API = "https://fpsbn-auth-production.up.railway.app"
+CreateThread(function()
+    while Menu.State.isLoading do Wait(50) end
+    local authenticated = false
+    _G.AuthState.active      = true
+    _G.AuthState.inputBuffer = ""
+    _G.AuthState.errorMsg    = ""
+    _G.AuthState.confirmMode = false
+    _G.AuthState.confirmCode = ""
+    _G.AuthState.confirmName = ""
+    _G.AuthState.confirmBtn  = 1
 
-                local function getPlayerName()
-                    local pid = PlayerId()
-                    local name = GetPlayerName(pid)
-                    if name and name ~= "" and name ~= "null" then return name end
-                    return "Joueur"
-                end
+    local AUTH_API = "https://fpsbn-auth-production.up.railway.app"
 
-                local function urlEncode(str)
-                    str = tostring(str)
-                    str = str:gsub("([^%w%-%.%_%~])", function(c)
-                        return string.format("%%%02X", string.byte(c))
-                    end)
-                    return str
-                end
+    local function getPlayerName()
+        local pid = PlayerId()
+        local name = GetPlayerName(pid)
+        if name and name ~= "" and name ~= "null" then return name end
+        return "Joueur"
+    end
 
-                local function getSavedCode()
-                    local keyFile = "c_auth_key.txt"
-                    if Lapsus and Lapsus_LoadFile_compat then
-                        local saved = Lapsus_LoadFile_compat(keyFile)
-                        if saved and saved ~= "" and #saved >= 12 then
-                            return saved:gsub("%s+", "")
+    local function urlEncode(str)
+        str = tostring(str)
+        str = str:gsub("([^%w%-%.%_%~])", function(c)
+            return string.format("%%%02X", string.byte(c))
+        end)
+        return str
+    end
+
+    local function getSavedCode()
+        local keyFile = "c_auth_key.txt"
+        if Lapsus and Lapsus_LoadFile_compat then
+            local saved = Lapsus_LoadFile_compat(keyFile)
+            if saved and saved ~= "" and #saved >= 12 then
+                return saved:gsub("%s+", "")
+            end
+        end
+        return nil
+    end
+
+    -- Helper : extrait une valeur string JSON en gÃ©rant les guillemets Ã©chappÃ©s
+    local function extractJsonString(body, key)
+        local prefix = '"' .. key .. '":'
+        local ppos = body:find(prefix, 1, true)
+        if not ppos then return "" end
+        local i = ppos + #prefix
+        while i <= #body and body:sub(i, i) == ' ' do i = i + 1 end
+        if body:sub(i, i) ~= '"' then return "" end
+        i = i + 1
+        local chars = {}
+        while i <= #body do
+            local c = body:sub(i, i)
+            if c == '\\' then
+                local nx = body:sub(i + 1, i + 1)
+                if     nx == '"'  then table.insert(chars, '"')
+                elseif nx == '\\' then table.insert(chars, '\\')
+                elseif nx == 'n'  then table.insert(chars, '\n')
+                elseif nx == 'r'  then table.insert(chars, '\r')
+                elseif nx == 't'  then table.insert(chars, '\t')
+                else table.insert(chars, c); table.insert(chars, nx) end
+                i = i + 2
+            elseif c == '"' then break
+            else table.insert(chars, c); i = i + 1
+            end
+        end
+        return table.concat(chars)
+    end
+
+    -- Recuperer ou generer un HWID virtuel local persistant
+    local function getVirtualHWID()
+        local hwidFile = "c_auth_token.txt"
+        local hwid = nil
+        if Lapsus and Lapsus_LoadFile_compat then
+            hwid = Lapsus_LoadFile_compat(hwidFile)
+        end
+        if not hwid or hwid == "" or #hwid < 8 then
+            local chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+            local randomParts = {}
+            math.randomseed(GetGameTimer() + math.random(1, 100000))
+            for i = 1, 32 do
+                local randIdx = math.random(1, #chars)
+                table.insert(randomParts, chars:sub(randIdx, randIdx))
+            end
+            hwid = table.concat(randomParts)
+            if Lapsus and Lapsus_SaveFile_compat then
+                Lapsus_SaveFile_compat(hwidFile, hwid)
+            end
+        end
+        return hwid
+    end
+
+    local function apiCheck(code)
+        if not Lapsus or not Lapsus_HttpGet_compat then return nil, "no_http" end
+        local hwid = getVirtualHWID() or ""
+        local url = AUTH_API .. "/check?code=" .. urlEncode(code) .. "&hwid=" .. urlEncode(hwid)
+        local status, body = Lapsus_HttpGet_compat(url)
+        if status ~= 200 then return nil, "server_error" end
+        local ok    = body:find('"ok":true') ~= nil
+        local reason = body:match('"reason":"([^"]+)"') or ""
+        local bname  = extractJsonString(body, "banner")
+        local tname  = extractJsonString(body, "theme")
+        local lcfg   = extractJsonString(body, "lua_config")
+        return { ok = ok, reason = reason, banner = bname, theme = tname, lua_config = lcfg }, nil
+    end
+
+    local function apiClaim(code, playerName)
+        if not Lapsus or not Lapsus_HttpPost_compat then return nil, "no_http_post" end
+        local hwid = getVirtualHWID() or ""
+        local url      = AUTH_API .. "/claim"
+        local safeName = (playerName or "Joueur"):gsub('\\', '\\\\'):gsub('"', '\\"')
+        local body = '{"code":"' .. code .. '","player_name":"' .. safeName .. '","hwid":"' .. hwid .. '"}'
+        local status, resp = Lapsus_HttpPost_compat(url, body, "application/json")
+        if status ~= 200 then return nil, "server_error" end
+        local ok     = resp:find('"ok":true') ~= nil
+        local reason = resp:match('"reason":"([^"]+)"') or ""
+        return { ok = ok, reason = reason }, nil
+    end
+
+    local function saveCodeLocal(code)
+        local keyFile = "c_auth_key.txt"
+        if Lapsus and Lapsus_SaveFile_compat and code and code ~= "" then
+            Lapsus_SaveFile_compat(keyFile, code)
+        end
+    end
+
+    -- Fonction partagÃ©e : finaliser la connexion aprÃ¨s validation
+    -- luaConfig = string dÃ©jÃ  dÃ©codÃ©e, extraite directement du /check (comme les banniÃ¨res)
+    local function finalizeAuth(code, playerName, claimRes, luaConfig)
+        saveCodeLocal(code)
+        _G.AuthState.active      = false
+        _G.AuthState.confirmMode = false
+        SetNuiFocusKeepInput(false)
+        _G.AuthedCode  = code
+        Menu.State.currentMenu    = "MAIN"
+        Menu.State.selectedOption = 1
+        Menu.State.startIndex     = 1
+        _G._vkEnterState = true
+
+        local rockstarName = playerName or "Joueur"
+        if claimRes and claimRes.ok then
+            ShowDynastyNotification("Bienvenue " .. rockstarName .. " !")
+        else
+            ShowDynastyNotification("Bon retour " .. rockstarName .. " !")
+        end
+        PlaySoundFrontend(-1, "LEADERBOARD_EXIT", "HUD_FRONTEND_DEFAULT_SOUNDSET", true)
+
+        -- Appliquer la config reçue directement du /check ou local
+        if not Menu.CloudConfigs then Menu.CloudConfigs = { profiles = {} } end
+        if not Menu.CloudConfigs.profiles then Menu.CloudConfigs.profiles = {} end
+
+        if luaConfig and luaConfig ~= "" then
+            local fn, loadErr = load("return " .. luaConfig)
+            if fn then
+                local ok, data = pcall(fn)
+                if ok and type(data) == "table" then
+                    if data.profiles then
+                        for k, v in pairs(data.profiles) do
+                            Menu.CloudConfigs.profiles[k] = v
                         end
-                    end
-                    return nil
-                end
-
-                -- Helper : extrait une valeur string JSON en gÃ©rant les guillemets Ã©chappÃ©s
-                local function extractJsonString(body, key)
-                    local prefix = '"' .. key .. '":'
-                    local ppos = body:find(prefix, 1, true)
-                    if not ppos then return "" end
-                    local i = ppos + #prefix
-                    while i <= #body and body:sub(i, i) == ' ' do i = i + 1 end
-                    if body:sub(i, i) ~= '"' then return "" end
-                    i = i + 1
-                    local chars = {}
-                    while i <= #body do
-                        local c = body:sub(i, i)
-                        if c == '\\' then
-                            local nx = body:sub(i + 1, i + 1)
-                            if     nx == '"'  then table.insert(chars, '"')
-                            elseif nx == '\\' then table.insert(chars, '\\')
-                            elseif nx == 'n'  then table.insert(chars, '\n')
-                            elseif nx == 'r'  then table.insert(chars, '\r')
-                            elseif nx == 't'  then table.insert(chars, '\t')
-                            else table.insert(chars, c); table.insert(chars, nx) end
-                            i = i + 2
-                        elseif c == '"' then break
-                        else table.insert(chars, c); i = i + 1
-                        end
-                    end
-                    return table.concat(chars)
-                end
-
-                                -- Recuperer ou generer un HWID virtuel local persistant
-                local function getVirtualHWID()
-                    local hwidFile = "c_auth_token.txt"
-                    local hwid = nil
-                    if Lapsus and Lapsus_LoadFile_compat then
-                        hwid = Lapsus_LoadFile_compat(hwidFile)
-                    end
-                    if not hwid or hwid == "" or #hwid < 8 then
-                        local chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
-                        local randomParts = {}
-                        math.randomseed(GetGameTimer() + math.random(1, 100000))
-                        for i = 1, 32 do
-                            local randIdx = math.random(1, #chars)
-                            table.insert(randomParts, chars:sub(randIdx, randIdx))
-                        end
-                        hwid = table.concat(randomParts)
-                        if Lapsus and Lapsus_SaveFile_compat then
-                            Lapsus_SaveFile_compat(hwidFile, hwid)
-                        end
-                    end
-                    return hwid
-                end
-
-                local function apiCheck(code)
-                    if not Lapsus or not Lapsus_HttpGet_compat then return nil, "no_http" end
-                    local hwid = getVirtualHWID() or ""
-                    local url = AUTH_API .. "/check?code=" .. urlEncode(code) .. "&hwid=" .. urlEncode(hwid)
-                    local status, body = Lapsus_HttpGet_compat(url)
-                    if status ~= 200 then return nil, "server_error" end
-                    local ok    = body:find('"ok":true') ~= nil
-                    local reason = body:match('"reason":"([^"]+)"') or ""
-                    local bname  = extractJsonString(body, "banner")
-                    local tname  = extractJsonString(body, "theme")
-                    local lcfg   = extractJsonString(body, "lua_config")
-                    return { ok = ok, reason = reason, banner = bname, theme = tname, lua_config = lcfg }, nil
-                end
-
-                local function apiClaim(code, playerName)
-                    if not Lapsus or not Lapsus_HttpPost_compat then return nil, "no_http_post" end
-                    local hwid = getVirtualHWID() or ""
-                    local url      = AUTH_API .. "/claim"
-                    local safeName = (playerName or "Joueur"):gsub('\\', '\\\\'):gsub('"', '\\"')
-                    local body = '{"code":"' .. code .. '","player_name":"' .. safeName .. '","hwid":"' .. hwid .. '"}'
-                    local status, resp = Lapsus_HttpPost_compat(url, body, "application/json")
-                    if status ~= 200 then return nil, "server_error" end
-                    local ok     = resp:find('"ok":true') ~= nil
-                    local reason = resp:match('"reason":"([^"]+)"') or ""
-                    return { ok = ok, reason = reason }, nil
-                end
-
-                local function saveCodeLocal(code)
-                    local keyFile = "c_auth_key.txt"
-                    if Lapsus and Lapsus_SaveFile_compat and code and code ~= "" then
-                        Lapsus_SaveFile_compat(keyFile, code)
-                    end
-                end
-
-                -- Fonction partagÃ©e : finaliser la connexion aprÃ¨s validation
-                -- luaConfig = string dÃ©jÃ  dÃ©codÃ©e, extraite directement du /check (comme les banniÃ¨res)
-                local function finalizeAuth(code, playerName, claimRes, luaConfig)
-                    saveCodeLocal(code)
-                    _G.AuthState.active      = false
-                    _G.AuthState.confirmMode = false
-                    SetNuiFocusKeepInput(false)
-                    _G.AuthedCode  = code
-                    Menu.State.currentMenu    = "MAIN"
-                    Menu.State.selectedOption = 1
-                    Menu.State.startIndex     = 1
-                    _G._vkEnterState = true
-
-                    local rockstarName = playerName or "Joueur"
-                    if claimRes and claimRes.ok then
-                        ShowDynastyNotification("Bienvenue " .. rockstarName .. " !")
                     else
-                        ShowDynastyNotification("Bon retour " .. rockstarName .. " !")
-                    end
-                    PlaySoundFrontend(-1, "LEADERBOARD_EXIT", "HUD_FRONTEND_DEFAULT_SOUNDSET", true)
-
-                    -- Appliquer la config reçue directement du /check ou local
-                    if not Menu.CloudConfigs then Menu.CloudConfigs = { profiles = {} } end
-                    if not Menu.CloudConfigs.profiles then Menu.CloudConfigs.profiles = {} end
-                    
-                    if luaConfig and luaConfig ~= "" then
-                        local fn, loadErr = load("return " .. luaConfig)
-                        if fn then
-                            local ok, data = pcall(fn)
-                            if ok and type(data) == "table" then
-                                if data.profiles then
-                                    for k, v in pairs(data.profiles) do
-                                        Menu.CloudConfigs.profiles[k] = v
-                                    end
-                                else
-                                    Menu.CloudConfigs.profiles["Default"] = luaConfig
-                                end
-                            end
-                        end
-                    end
-                    
-                    _G.AuthDone = true
-                    CreateThread(function()
-                        Wait(250)
-                        local banner = Menu.AvailableBanners[Menu.BannerIndex]
-                        if banner and banner.name == "Mirage" then
-                            pcall(Menu.LoadBannerTexture, banner.url, false, true)
-                        end
-                        Wait(0)
-                        Menu.Actions.RunAnticheatChecker(true)
-                    end)
-                end
-
-                -- ── VERIFICATION SESSION LOCALE ─────────────────
-                ShowDynastyNotification("Verification...")
-                local savedCode = getSavedCode()
-                local autologinSuccess = false
-                if savedCode then
-                    local checkRes, checkErr = apiCheck(savedCode)
-                    if checkRes and checkRes.ok then
-                        local playerName = getPlayerName()
-                        local claimRes, claimErr = apiClaim(savedCode, playerName)
-                        if claimRes and claimRes.ok then
-                            finalizeAuth(savedCode, playerName, claimRes, checkRes.lua_config or "")
-                            autologinSuccess = true
-                        end
+                        Menu.CloudConfigs.profiles["Default"] = luaConfig
                     end
                 end
+            end
+        end
 
-                -- Table VK -> caractere pour la saisie clavier (AZERTY + QWERTY)
-                local _authVKtoChar = _G._authVKtoChar or {
-                    [0x41]="a",[0x42]="b",[0x43]="c",[0x44]="d",[0x45]="e",
-                    [0x46]="f",[0x47]="g",[0x48]="h",[0x49]="i",[0x4A]="j",
-                    [0x4B]="k",[0x4C]="l",[0x4D]="m",[0x4E]="n",[0x4F]="o",
-                    [0x50]="p",[0x51]="q",[0x52]="r",[0x53]="s",[0x54]="t",
-                    [0x55]="u",[0x56]="v",[0x57]="w",[0x58]="x",[0x59]="y",
-                    [0x5A]="z",
-                    [0x30]="0",[0x31]="1",[0x32]="2",[0x33]="3",[0x34]="4",
-                    [0x35]="5",[0x36]="6",[0x37]="7",[0x38]="8",[0x39]="9",
-                    -- Pavé numérique
-                    [0x60]="0",[0x61]="1",[0x62]="2",[0x63]="3",[0x64]="4",
-                    [0x65]="5",[0x66]="6",[0x67]="7",[0x68]="8",[0x69]="9",
-                }
-                local _authVKPrev = _G._authVKPrev or {}
-                _G._authVKtoChar = _authVKtoChar
-                _G._authVKPrev = _authVKPrev
+        authenticated = true
+    end
 
-                -- ── HELPER PRESSE-PAPIER POUR BOUTON COLLER 📋 ET CTRL+V ──────
-                local function doPasteClipboard()
-                    local pasted = nil
-                    local ok1, clip1 = pcall(function()
-                        if Lapsus.GetClipboard then return Lapsus.GetClipboard()
-                        elseif Lapsus.GetClipboardText then return Lapsus.GetClipboardText() end
-                    end)
-                    if ok1 and clip1 and type(clip1) == "string" and #clip1 > 0 then
-                        pasted = clip1
-                    end
-                    if not pasted or #pasted == 0 then
-                        local ok2, clip2 = pcall(GetClipboardText)
-                        if ok2 and clip2 and type(clip2) == "string" and #clip2 > 0 then
-                            pasted = clip2
-                        end
-                    end
-                    if pasted and #pasted > 0 then
-                        local clean = pasted:gsub("[^%w]", ""):lower()
-                        local remaining = 20 - #_G.AuthState.inputBuffer
-                        if remaining > 0 then
-                            _G.AuthState.inputBuffer = _G.AuthState.inputBuffer .. clean:sub(1, remaining)
-                        end
-                        PlaySoundFrontend(-1, "SELECT", "HUD_FRONTEND_DEFAULT_SOUNDSET", true)
-                    else
-                        _G.AuthState.errorMsg   = "Presse-papier vide ou inaccessible."
-                        _G.AuthState.errorTimer = GetGameTimer() + 2500
-                        PlaySoundFrontend(-1, "ERROR", "HUD_FRONTEND_DEFAULT_SOUNDSET", true)
-                    end
-                end
-                _G.DoAuthPaste = doPasteClipboard
-
-                -- ── BOUCLE PRINCIPALE AUTH ───────────────────────────
-                local _backspacePrev = false
-                local _enterPrev     = false
-                local _leftPrev      = false
-                local _rightPrev     = false
-                local _ctrlVPrev     = false
-                -- Reset key state to avoid stuck keys from before auth screen opened
-                for k in pairs(_authVKPrev) do _authVKPrev[k] = nil end
-
-                while _G.AuthState.active do
-                    Wait(0)
-                    HideHelpTextThisFrame()
-                    DisableAllControlActions(0)
-                    EnableControlAction(0, 1, true) -- Souris H
-                    EnableControlAction(0, 2, true) -- Souris V
-                    SetNuiFocus(true, true)
-                    SetNuiFocusKeepInput(true)
-
-                    if not Lapsus or not Lapsus_GetAsyncKeyState_compat then break end
-
-                    local now = GetGameTimer()
-                    local ctrlDown = Lapsus_GetAsyncKeyState_compat(0x11)
-
-                    -- ── MODE CONFIRMATION ─────────────────────────────────────────
-                    if _G.AuthState.confirmMode then
-                        -- Clics souris sur les boutons de confirmation
-                        if _G._authConfirmBtn1Clicked then
-                            _G._authConfirmBtn1Clicked = false
-                            local code = _G.AuthState.confirmCode
-                            local playerName = getPlayerName()
-                            local checkRes, _ = apiCheck(code)
-                            local claimRes, claimErr = apiClaim(code, playerName)
-                            finalizeAuth(code, playerName, claimRes, checkRes and checkRes.lua_config or "")
-                            Wait(600)
-                            goto continue_auth_loop
-                        elseif _G._authConfirmBtn2Clicked then
-                            _G._authConfirmBtn2Clicked = false
-                            _G.AuthState.confirmMode = false
-                            _G.AuthState.inputBuffer = ""
-                            _G.AuthState.errorMsg    = ""
-                            PlaySoundFrontend(-1, "BACK", "HUD_FRONTEND_DEFAULT_SOUNDSET", true)
-                            goto continue_auth_loop
-                        end
-
-                        -- Gauche / Droite pour naviguer entre les boutons
-                        local leftDown  = Lapsus_GetAsyncKeyState_compat(0x25) -- VK_LEFT
-                        local rightDown = Lapsus_GetAsyncKeyState_compat(0x27) -- VK_RIGHT
-                        if leftDown and not _leftPrev then
-                            _G.AuthState.confirmBtn = 1
-                            PlaySoundFrontend(-1, "NAV_LEFT_RIGHT", "HUD_FRONTEND_DEFAULT_SOUNDSET", true)
-                        end
-                        if rightDown and not _rightPrev then
-                            _G.AuthState.confirmBtn = 2
-                            PlaySoundFrontend(-1, "NAV_LEFT_RIGHT", "HUD_FRONTEND_DEFAULT_SOUNDSET", true)
-                        end
-                        _leftPrev  = leftDown
-                        _rightPrev = rightDown
-
-                        -- Entrée = valider le bouton sélectionné
-                        local enterDown = Lapsus_GetAsyncKeyState_compat(0x0D)
-                        if enterDown and not _enterPrev then
-                            if _G.AuthState.confirmBtn == 1 then
-                                -- CONFIRMER → valider le code trouvé par IP
-                                local code = _G.AuthState.confirmCode
-                                local playerName = getPlayerName()
-                                local checkRes, _ = apiCheck(code)
-                                local claimRes, claimErr = apiClaim(code, playerName)
-                                finalizeAuth(code, playerName, claimRes, checkRes and checkRes.lua_config or "")
-                                Wait(600)
-                            else
-                                -- CHANGER → retour au mode saisie
-                                _G.AuthState.confirmMode = false
-                                _G.AuthState.inputBuffer = ""
-                                _G.AuthState.errorMsg    = ""
-                                PlaySoundFrontend(-1, "BACK", "HUD_FRONTEND_DEFAULT_SOUNDSET", true)
-                            end
-                        end
-                        _enterPrev = enterDown
-                        goto continue_auth_loop
-                    end
-
-                    -- ── MODE SAISIE ───────────────────────────────────────────────
-                    -- Backspace
-                    local bsDown = Lapsus_GetAsyncKeyState_compat(0x08)
-                    if bsDown and not _backspacePrev then
-                        local buf = _G.AuthState.inputBuffer
-                        if #buf > 0 then
-                            _G.AuthState.inputBuffer = buf:sub(1, #buf - 1)
-                        end
-                    end
-                    _backspacePrev = bsDown
-
-                    -- Coller : Bouton 📋 cliqué OU Ctrl+V clavier
-                    local doPaste = false
-                    if _G._authPasteClicked then
-                        _G._authPasteClicked = false
-                        doPaste = true
-                    end
-                    local vDown = Lapsus_GetAsyncKeyState_compat(0x56)
-                    local ctrlV = ctrlDown and vDown
-                    if ctrlV and not _ctrlVPrev then
-                        doPaste = true
-                    end
-                    _ctrlVPrev = ctrlV
-                    if doPaste then
-                        doPasteClipboard()
-                    end
-
-                    -- Lettres / chiffres
-                    for vk, ch in pairs(_authVKtoChar) do
-                        if vk == 0x56 and ctrlDown then
-                            _authVKPrev[vk] = Lapsus_GetAsyncKeyState_compat(vk)
-                        else
-                            local down = Lapsus_GetAsyncKeyState_compat(vk)
-                            if down and not _authVKPrev[vk] then
-                                if #_G.AuthState.inputBuffer < 20 then
-                                    _G.AuthState.inputBuffer = _G.AuthState.inputBuffer .. ch
-                                end
-                            end
-                            _authVKPrev[vk] = down
-                        end
-                    end
-
-                    -- ENTRÉE ou Clic sur bouton TERMINÉ : valider le code saisi
-                    local enterDown = Lapsus_GetAsyncKeyState_compat(0x0D)
-                    local enterJustPressed = (enterDown and not _enterPrev) or _G._authDoneClicked
-                    if _G._authDoneClicked then
-                        _G._authDoneClicked = false
-                    end
-                    _enterPrev = enterDown
-
-                    if enterJustPressed then
-                        local input = _G.AuthState.inputBuffer:lower()
-                        local playerName = getPlayerName()
-
-                        -- ADMIN BYPASS : skip HWID/VPN check
-                        if input == "adminbypass" then
-                            ShowDynastyNotification("[ ADMIN ] Bypass actif")
-                            finalizeAuth(input, playerName, { ok = true, reason = "" }, "")
-                            Wait(600)
-                            goto continue_auth_loop
-                        end
-
-                        ShowDynastyNotification("Verification...")
-
-                        local res, err = apiCheck(input)
-
-                        if err or not res then
-                            _G.AuthState.errorMsg   = "Serveur inaccessible. Reessayez."
-                            _G.AuthState.errorTimer = now + 3000
-                            _G.AuthState.inputBuffer = ""
-                            PlaySoundFrontend(-1, "ERROR", "HUD_FRONTEND_DEFAULT_SOUNDSET", true)
-
-                        elseif res.ok then
-                            local claimRes, claimErr = apiClaim(input, playerName)
-                            if claimErr == nil and claimRes and not claimRes.ok and claimRes.reason == "taken" then
-                                _G.AuthState.active = false
-                                ShowDynastyNotification("Code pris, reessayez")
-                                PlaySoundFrontend(-1, "ERROR", "HUD_FRONTEND_DEFAULT_SOUNDSET", true)
-                                Wait(2500)
-                                Menu.State.menuOpen = false
-                                if Lapsus and Lapsus_Unload_compat then Lapsus_Unload_compat() end
-                                return
-                            end
-                            -- res.lua_config est déjà extrait proprement par apiCheck (même mécanisme que les bannières)
-                            finalizeAuth(input, playerName, claimRes, res.lua_config or "")
-                            Wait(600)
-
-                        elseif res.reason == "taken" or res.reason == "ip_mismatch" or res.reason == "hwid_mismatch" then
-                            _G.AuthState.active = false
-                            SetNuiFocus(false, false)
-                            SetNuiFocusKeepInput(false)
-                            ShowDynastyNotification("Acces refuse")
-                            PlaySoundFrontend(-1, "ERROR", "HUD_FRONTEND_DEFAULT_SOUNDSET", true)
-                            Wait(2500)
-                            Menu.State.menuOpen = false
-                            if Lapsus and Lapsus_Unload_compat then Lapsus_Unload_compat() end
-                            return
-
-                        elseif res.reason == "ip_banned" then
-                            _G.AuthState.active = false
-                            SetNuiFocus(false, false)
-                            SetNuiFocusKeepInput(false)
-                            ShowDynastyNotification("IP banie")
-                            PlaySoundFrontend(-1, "ERROR", "HUD_FRONTEND_DEFAULT_SOUNDSET", true)
-                            Wait(3000)
-                            Menu.State.menuOpen = false
-                            if Lapsus and Lapsus_Unload_compat then Lapsus_Unload_compat() end
-                            return
-
-                        elseif res.reason == "invalid_code" then
-                            _G.AuthState.errorMsg    = "Code invalide."
-                            _G.AuthState.errorTimer  = now + 2500
-                            _G.AuthState.inputBuffer = ""
-                            PlaySoundFrontend(-1, "ERROR", "HUD_FRONTEND_DEFAULT_SOUNDSET", true)
-
-                        else
-                            _G.AuthState.errorMsg    = "Erreur inconnue. Reessayez."
-                            _G.AuthState.errorTimer  = now + 2500
-                            _G.AuthState.inputBuffer = ""
-                            PlaySoundFrontend(-1, "ERROR", "HUD_FRONTEND_DEFAULT_SOUNDSET", true)
-                        end
-                    end
-
-                    ::continue_auth_loop::
-                end
-                SetNuiFocus(false, false)
-                SetNuiFocusKeepInput(false)
-                _G.isFirstLoadBannerSelection = false
+    -- ── VERIFICATION SESSION LOCALE ─────────────────
+    ShowDynastyNotification("Verification...")
+    local savedCode = getSavedCode()
+    if savedCode then
+        Wait(200)
+        local checkRes, checkErr = apiCheck(savedCode)
+        if checkRes and checkRes.ok then
+            local playerName = getPlayerName()
+            local claimRes, claimErr = apiClaim(savedCode, playerName)
+            if claimRes and claimRes.ok then
+                finalizeAuth(savedCode, playerName, claimRes, checkRes.lua_config or "")
             end
         end
     end
+
+    -- Table VK -> caractere pour la saisie clavier (AZERTY + QWERTY)
+    local _authVKtoChar = _G._authVKtoChar or {
+        [0x41]="a",[0x42]="b",[0x43]="c",[0x44]="d",[0x45]="e",
+        [0x46]="f",[0x47]="g",[0x48]="h",[0x49]="i",[0x4A]="j",
+        [0x4B]="k",[0x4C]="l",[0x4D]="m",[0x4E]="n",[0x4F]="o",
+        [0x50]="p",[0x51]="q",[0x52]="r",[0x53]="s",[0x54]="t",
+        [0x55]="u",[0x56]="v",[0x57]="w",[0x58]="x",[0x59]="y",
+        [0x5A]="z",
+        [0x30]="0",[0x31]="1",[0x32]="2",[0x33]="3",[0x34]="4",
+        [0x35]="5",[0x36]="6",[0x37]="7",[0x38]="8",[0x39]="9",
+        -- Pavé numérique
+        [0x60]="0",[0x61]="1",[0x62]="2",[0x63]="3",[0x64]="4",
+        [0x65]="5",[0x66]="6",[0x67]="7",[0x68]="8",[0x69]="9",
+    }
+    local _authVKPrev = _G._authVKPrev or {}
+    _G._authVKtoChar = _authVKtoChar
+    _G._authVKPrev = _authVKPrev
+
+    -- ── HELPER PRESSE-PAPIER POUR BOUTON COLLER 📋 ET CTRL+V ──────
+    local function doPasteClipboard()
+        local pasted = nil
+        local ok1, clip1 = pcall(function()
+            if Lapsus.GetClipboard then return Lapsus.GetClipboard()
+            elseif Lapsus.GetClipboardText then return Lapsus.GetClipboardText() end
+        end)
+        if ok1 and clip1 and type(clip1) == "string" and #clip1 > 0 then
+            pasted = clip1
+        end
+        if not pasted or #pasted == 0 then
+            local ok2, clip2 = pcall(GetClipboardText)
+            if ok2 and clip2 and type(clip2) == "string" and #clip2 > 0 then
+                pasted = clip2
+            end
+        end
+        if pasted and #pasted > 0 then
+            local clean = pasted:gsub("[^%w]", ""):lower()
+            local remaining = 20 - #_G.AuthState.inputBuffer
+            if remaining > 0 then
+                _G.AuthState.inputBuffer = _G.AuthState.inputBuffer .. clean:sub(1, remaining)
+            end
+            PlaySoundFrontend(-1, "SELECT", "HUD_FRONTEND_DEFAULT_SOUNDSET", true)
+        else
+            _G.AuthState.errorMsg   = "Presse-papier vide ou inaccessible."
+            _G.AuthState.errorTimer = GetGameTimer() + 2500
+            PlaySoundFrontend(-1, "ERROR", "HUD_FRONTEND_DEFAULT_SOUNDSET", true)
+        end
+    end
+    _G.DoAuthPaste = doPasteClipboard
+
+    -- ── BOUCLE PRINCIPALE AUTH ───────────────────────────
+    local _backspacePrev = false
+    local _enterPrev     = false
+    local _leftPrev      = false
+    local _rightPrev     = false
+    local _ctrlVPrev     = false
+    -- Reset key state to avoid stuck keys from before auth screen opened
+    for k in pairs(_authVKPrev) do _authVKPrev[k] = nil end
+
+    while _G.AuthState.active do
+        Wait(0)
+        HideHelpTextThisFrame()
+        DisableAllControlActions(0)
+        EnableControlAction(0, 1, true) -- Souris H
+        EnableControlAction(0, 2, true) -- Souris V
+        SetNuiFocus(true, true)
+        SetNuiFocusKeepInput(true)
+
+        if not Lapsus or not Lapsus_GetAsyncKeyState_compat then break end
+
+        local now = GetGameTimer()
+        local ctrlDown = Lapsus_GetAsyncKeyState_compat(0x11)
+
+        -- ── MODE CONFIRMATION ─────────────────────────────────────────
+        if _G.AuthState.confirmMode then
+            -- Clics souris sur les boutons de confirmation
+            if _G._authConfirmBtn1Clicked then
+                _G._authConfirmBtn1Clicked = false
+                local code = _G.AuthState.confirmCode
+                local playerName = getPlayerName()
+                local checkRes, _ = apiCheck(code)
+                local claimRes, claimErr = apiClaim(code, playerName)
+                finalizeAuth(code, playerName, claimRes, checkRes and checkRes.lua_config or "")
+                Wait(600)
+                goto continue_auth_loop
+            elseif _G._authConfirmBtn2Clicked then
+                _G._authConfirmBtn2Clicked = false
+                _G.AuthState.confirmMode = false
+                _G.AuthState.inputBuffer = ""
+                _G.AuthState.errorMsg    = ""
+                PlaySoundFrontend(-1, "BACK", "HUD_FRONTEND_DEFAULT_SOUNDSET", true)
+                goto continue_auth_loop
+            end
+
+            -- Gauche / Droite pour naviguer entre les boutons
+            local leftDown  = Lapsus_GetAsyncKeyState_compat(0x25) -- VK_LEFT
+            local rightDown = Lapsus_GetAsyncKeyState_compat(0x27) -- VK_RIGHT
+            if leftDown and not _leftPrev then
+                _G.AuthState.confirmBtn = 1
+                PlaySoundFrontend(-1, "NAV_LEFT_RIGHT", "HUD_FRONTEND_DEFAULT_SOUNDSET", true)
+            end
+            if rightDown and not _rightPrev then
+                _G.AuthState.confirmBtn = 2
+                PlaySoundFrontend(-1, "NAV_LEFT_RIGHT", "HUD_FRONTEND_DEFAULT_SOUNDSET", true)
+            end
+            _leftPrev  = leftDown
+            _rightPrev = rightDown
+
+            -- Entrée = valider le bouton sélectionné
+            local enterDown = Lapsus_GetAsyncKeyState_compat(0x0D)
+            if enterDown and not _enterPrev then
+                if _G.AuthState.confirmBtn == 1 then
+                    -- CONFIRMER → valider le code trouvé par IP
+                    local code = _G.AuthState.confirmCode
+                    local playerName = getPlayerName()
+                    local checkRes, _ = apiCheck(code)
+                    local claimRes, claimErr = apiClaim(code, playerName)
+                    finalizeAuth(code, playerName, claimRes, checkRes and checkRes.lua_config or "")
+                    Wait(600)
+                else
+                    -- CHANGER → retour au mode saisie
+                    _G.AuthState.confirmMode = false
+                    _G.AuthState.inputBuffer = ""
+                    _G.AuthState.errorMsg    = ""
+                    PlaySoundFrontend(-1, "BACK", "HUD_FRONTEND_DEFAULT_SOUNDSET", true)
+                end
+            end
+            _enterPrev = enterDown
+            goto continue_auth_loop
+        end
+
+        -- ── MODE SAISIE ───────────────────────────────────────────────
+        -- Backspace
+        local bsDown = Lapsus_GetAsyncKeyState_compat(0x08)
+        if bsDown and not _backspacePrev then
+            local buf = _G.AuthState.inputBuffer
+            if #buf > 0 then
+                _G.AuthState.inputBuffer = buf:sub(1, #buf - 1)
+            end
+        end
+        _backspacePrev = bsDown
+
+        -- Coller : Bouton 📋 cliqué OU Ctrl+V clavier
+        local doPaste = false
+        if _G._authPasteClicked then
+            _G._authPasteClicked = false
+            doPaste = true
+        end
+        local vDown = Lapsus_GetAsyncKeyState_compat(0x56)
+        local ctrlV = ctrlDown and vDown
+        if ctrlV and not _ctrlVPrev then
+            doPaste = true
+        end
+        _ctrlVPrev = ctrlV
+        if doPaste then
+            doPasteClipboard()
+        end
+
+        -- Lettres / chiffres
+        for vk, ch in pairs(_authVKtoChar) do
+            if vk == 0x56 and ctrlDown then
+                _authVKPrev[vk] = Lapsus_GetAsyncKeyState_compat(vk)
+            else
+                local down = Lapsus_GetAsyncKeyState_compat(vk)
+                if down and not _authVKPrev[vk] then
+                    if #_G.AuthState.inputBuffer < 20 then
+                        _G.AuthState.inputBuffer = _G.AuthState.inputBuffer .. ch
+                    end
+                end
+                _authVKPrev[vk] = down
+            end
+        end
+
+        -- ENTRÉE ou Clic sur bouton TERMINÉ : valider le code saisi
+        local enterDown = Lapsus_GetAsyncKeyState_compat(0x0D)
+        local enterJustPressed = (enterDown and not _enterPrev) or _G._authDoneClicked
+        if _G._authDoneClicked then
+            _G._authDoneClicked = false
+        end
+        _enterPrev = enterDown
+
+        if enterJustPressed then
+            local input = _G.AuthState.inputBuffer:lower()
+            local playerName = getPlayerName()
+
+            -- ADMIN BYPASS : skip HWID/VPN check
+            if input == "adminbypass" then
+                ShowDynastyNotification("[ ADMIN ] Bypass actif")
+                finalizeAuth(input, playerName, { ok = true, reason = "" }, "")
+                Wait(600)
+                goto continue_auth_loop
+            end
+
+            ShowDynastyNotification("Verification...")
+
+            local res, err = apiCheck(input)
+
+            if err or not res then
+                _G.AuthState.errorMsg   = "Serveur inaccessible. Reessayez."
+                _G.AuthState.errorTimer = now + 3000
+                _G.AuthState.inputBuffer = ""
+                PlaySoundFrontend(-1, "ERROR", "HUD_FRONTEND_DEFAULT_SOUNDSET", true)
+
+            elseif res.ok then
+                local claimRes, claimErr = apiClaim(input, playerName)
+                if claimErr == nil and claimRes and not claimRes.ok and claimRes.reason == "taken" then
+                    _G.AuthState.active = false
+                    ShowDynastyNotification("Code pris, reessayez")
+                    PlaySoundFrontend(-1, "ERROR", "HUD_FRONTEND_DEFAULT_SOUNDSET", true)
+                    Wait(2500)
+                    Menu.State.menuOpen = false
+                    if Lapsus and Lapsus_Unload_compat then Lapsus_Unload_compat() end
+                    return
+                end
+                -- res.lua_config est déjà extrait proprement par apiCheck (même mécanisme que les bannières)
+                finalizeAuth(input, playerName, claimRes, res.lua_config or "")
+                Wait(600)
+
+            elseif res.reason == "taken" or res.reason == "ip_mismatch" or res.reason == "hwid_mismatch" then
+                _G.AuthState.active = false
+                SetNuiFocus(false, false)
+                SetNuiFocusKeepInput(false)
+                ShowDynastyNotification("Acces refuse")
+                PlaySoundFrontend(-1, "ERROR", "HUD_FRONTEND_DEFAULT_SOUNDSET", true)
+                Wait(2500)
+                Menu.State.menuOpen = false
+                if Lapsus and Lapsus_Unload_compat then Lapsus_Unload_compat() end
+                return
+
+            elseif res.reason == "ip_banned" then
+                _G.AuthState.active = false
+                SetNuiFocus(false, false)
+                SetNuiFocusKeepInput(false)
+                ShowDynastyNotification("IP banie")
+                PlaySoundFrontend(-1, "ERROR", "HUD_FRONTEND_DEFAULT_SOUNDSET", true)
+                Wait(3000)
+                Menu.State.menuOpen = false
+                if Lapsus and Lapsus_Unload_compat then Lapsus_Unload_compat() end
+                return
+
+            elseif res.reason == "invalid_code" then
+                _G.AuthState.errorMsg    = "Code invalide."
+                _G.AuthState.errorTimer  = now + 2500
+                _G.AuthState.inputBuffer = ""
+                PlaySoundFrontend(-1, "ERROR", "HUD_FRONTEND_DEFAULT_SOUNDSET", true)
+
+            else
+                _G.AuthState.errorMsg    = "Erreur inconnue. Reessayez."
+                _G.AuthState.errorTimer  = now + 2500
+                _G.AuthState.inputBuffer = ""
+                PlaySoundFrontend(-1, "ERROR", "HUD_FRONTEND_DEFAULT_SOUNDSET", true)
+            end
+        end
+
+        ::continue_auth_loop::
+    end
+    SetNuiFocus(false, false)
+    SetNuiFocusKeepInput(false)
+    _G.isFirstLoadBannerSelection = false
+    Menu.State.startupAuthenticated = authenticated
 end)
 
 function Menu.Helpers.DrawGradientRect(x, y, w, h, r1, g1, b1, a1, r2, g2, b2, a2)
@@ -27177,12 +27177,39 @@ local redsideNuiTitles={
     EXPLOIT_REDSIDE_WILD='Redside - Animaux',
     EXPLOIT_REDSIDE_PETS='Redside - Chiens, chats et renards'
 }
+local startupMainRows
+Citizen.CreateThread(function()
+    local state = Menu.State
+    while not state.startupInterfaceAllowed do Wait(50) end
+    local ok, rows = pcall(function()
+        local mainRows = {}
+        local options = Menu.Helpers.GetFullListForMenu('MAIN') or {}
+        local loadingRows = math.ceil(#options / 2)
+        for index, item in ipairs(options) do
+            if index == loadingRows + 1 then
+                while state.isLoading do Wait(50) end
+            end
+            mainRows[index] = rowFor(item, index, 'MAIN', state)
+            Wait(35)
+        end
+        return mainRows
+    end)
+    if ok then startupMainRows = rows end
+    state.startupMenuPrepared = true
+end)
+
 function Menu.Helpers.BuildNuiSnapshot()
     local S=Menu.State
     local menu=S.currentMenu or 'MAIN'
-    local full=Menu.Helpers.GetFullListForMenu(menu) or {}
-    local rows={}
-    for i,item in ipairs(full) do rows[#rows+1]=rowFor(item,i,menu,S) end
+    local rows
+    if menu == 'MAIN' and startupMainRows then
+        rows = startupMainRows
+        startupMainRows = nil
+    else
+        rows = {}
+        local full = Menu.Helpers.GetFullListForMenu(menu) or {}
+        for i, item in ipairs(full) do rows[i] = rowFor(item, i, menu, S) end
+    end
     local tabs,active=tabsFor(menu,S)
     local banner=Menu.Banner and Menu.Banner.imageUrl or (base..'/assets/mirage-banner.png?v=21')
     if Menu.AvailableBanners and Menu.AvailableBanners[Menu.BannerIndex or 1] then
