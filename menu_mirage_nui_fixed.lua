@@ -26889,6 +26889,7 @@ end)()
 local CFG = {
     drug = "auto",           -- auto = meilleur prix connu; ou "extasy", "coke", etc.
     batch = 50,              -- nombre de matieres premieres vise par trajet
+    minRawForProcessing = 3,
     collisionTimeoutMs = 15000, -- temps maximal de chargement apres une teleportation
     returnTimeoutMs = 10000,    -- chargement du decor au retour si le TP est annule
     positionSettleMs = 1200,    -- actualisation de la position dans le gamemode
@@ -27133,7 +27134,14 @@ local function stageDone(route, stage)
     return count(route.product) == 0
 end
 
+local function requireProcessingStock(raw)
+    if raw < CFG.minRawForProcessing then
+        error(("Traitement impossible : %d brut sur %d requis."):format(raw, CFG.minRawForProcessing), 0)
+    end
+end
+
 local function operate(route, stage)
+    if stage == "transform" then requireProcessingStock(count(route.raw)) end
     if stageDone(route, stage) then return true end
     if not navigate(route, stage) then return false end
     while guard(route) and (now() - S.lastStart < CFG.restartDelayMs
@@ -27144,6 +27152,7 @@ local function operate(route, stage)
     say(S.status)
     S.serverStopped = false
     local rawBefore, productBefore = count(route.raw), count(route.product)
+    if stage == "transform" then requireProcessingStock(rawBefore) end
     local previousRaw, previousProduct = rawBefore, productBefore
     local lastProgress = now()
     S.action = true
@@ -27171,6 +27180,7 @@ local function operate(route, stage)
         if S.serverStopped or now() - lastProgress > CFG.noProgressMs then
             finishAction()
             if stage == "harvest" and raw > rawBefore then
+                requireProcessingStock(raw)
                 say("Recolte terminee avec " .. raw .. " unites; passage au traitement.")
                 return true
             end
@@ -27223,7 +27233,7 @@ local function start()
                     :format(route.name, route.price, route.origin))
                 -- Vendre d'abord les produits deja transportes, puis traiter le brut restant.
                 if count(route.product) > 0 and not operate(route, "sell") then return end
-                if count(route.raw) == 0 and not operate(route, "harvest") then return end
+                if count(route.raw) < CFG.minRawForProcessing and not operate(route, "harvest") then return end
                 if not operate(route, "transform") then return end
                 local remainingRaw = count(route.raw)
                 if count(route.product) == 0 then error("Traitement sans produit fini reconnu.", 0) end
