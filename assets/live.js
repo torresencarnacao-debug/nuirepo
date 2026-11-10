@@ -28,7 +28,7 @@ function draw(state){
  if(selected-1>=windowStart+10)windowStart=selected-10;
  windowStart=Math.max(0,Math.min(windowStart,Math.max(0,count-10)));
  const visibleRows=all.slice(windowStart,windowStart+10);
- const rk=state.menu+':'+windowStart+':'+JSON.stringify(visibleRows.map(item=>[item.label,item.kind,!!item.slider,item.badge!==undefined&&item.badge!==null&&item.badge!=='',!!item.selector,!!item.toggle,!!item.submenu]));
+ const rk=state.menu+':'+windowStart+':'+JSON.stringify(visibleRows.map(item=>[item.label,item.kind,!!item.slider,item.badge!==undefined&&item.badge!==null&&item.badge!=='',!!item.selector,!!item.toggle,!!item.submenu,!!item.occupancy]));
  if(rk!==rowKey){
   const savedScroll=list.scrollTop||0;rowKey=rk;nodes=[];if(!indicator)indicator=el('div','selection-indicator');list.replaceChildren(indicator);list.scrollTop=savedScroll;
   let offset=1;
@@ -42,6 +42,7 @@ function draw(state){
     let amount=Math.max(0,Math.min(1,(item.slider.value-min)/Math.max(1,max-min)));if(item.slider.inverse)amount=1-amount;
     fill.style.width=(amount*100)+'%';slots.fill=fill;slider.append(fill);row.append(slider);
    }
+   if(item.occupancy){slots.occupancy=el('span','vehicle-occupancy');row.append(slots.occupancy);}
    if(item.badge!==undefined&&item.badge!==null&&item.badge!==''){slots.badge=el('span','badge');row.append(slots.badge);}
    if(item.toggle){slots.toggle=el('span','switch');row.append(slots.toggle);}else if(item.submenu)row.append(el('span','chevron','›'));
    list.append(row);nodes.push({row,index:windowStart+i+1,offset,separator,slots});offset+=separator?26:34;
@@ -49,7 +50,12 @@ function draw(state){
  }
  nodes.forEach((node,i)=>{
   const item=visibleRows[i],slots=node.slots;
-  if(slots.badge){const value=(item.selector?'‹ ':'')+t(item.badge)+(item.selector?' ›':'');if(slots.badge.textContent!==value)slots.badge.textContent=value;}
+  if(slots.occupancy){
+   const occupied=item.occupancy==='occupied';
+   slots.occupancy.dataset.state=occupied?'occupied':'free';
+   slots.occupancy.textContent=occupied?'Occupé':'Libre';
+  }
+  if(slots.badge){const value=(item.selector?'‹ ':'')+t(item.badge)+(item.selector?' ›':'');if(slots.badge.textContent!==value){slots.badge.textContent=value;slots.badge.title=value;}}
   if(slots.toggle)slots.toggle.classList.toggle('on',!!item.active);
   if(slots.fill){const min=Number(item.slider.min)||0,max=Number(item.slider.max)||100;let amount=Math.max(0,Math.min(1,(item.slider.value-min)/Math.max(1,max-min)));if(item.slider.inverse)amount=1-amount;slots.fill.style.width=(amount*100)+'%';}
  });

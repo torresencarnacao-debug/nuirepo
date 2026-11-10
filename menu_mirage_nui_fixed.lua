@@ -3422,6 +3422,12 @@ function Menu.Actions.HandleMenuSelection()
 end
 
 function Menu.Actions.HandleBackNavigation()
+    if Menu.State.currentMenu == "EXPLOIT_AUTO_FARM" then
+        Menu.State.currentMenu = "EXPLOIT_PUTIN"
+        Menu.State.selectedOption = #Menu.Data.Options.EXPLOIT_PUTIN
+        Menu.State.startIndex = 1
+        return
+    end
     if Menu.State.currentMenu=="EXPLOIT_REDSIDE_WILD" or Menu.State.currentMenu=="EXPLOIT_REDSIDE_PETS" then
         local selected = Menu.State.currentMenu=="EXPLOIT_REDSIDE_WILD" and 1 or 2
         Menu.State.currentMenu="EXPLOIT_REDSIDE"
@@ -7222,6 +7228,7 @@ Menu.Data.Options.EXPLOIT_PUTIN={
     {type="submenu",name="Give"},
     {type="toggle",name="Crosse Abuse",id="crosse_abuse",state="crosseAbuseActive"},
     {type="toggle",name="Staff Abuse",id="staff_abuse",state="staffAbuseActive"},
+    {type="submenu",name="Auto Farm",id="exploit_auto_farm"},
 }
 Menu.Data.Options.EXPLOIT_SEED={
     {type="toggle",name="Crash",state="crashActive"},
@@ -7305,9 +7312,10 @@ end
 
 
 function Menu.Helpers.IsExploitCategory(menu)
-    return menu=="EXPLOIT_PUTIN" or menu=="EXPLOIT_SEED" or menu=="EXPLOIT_WAVESHIELD" or menu=="EXPLOIT_ELECTRON" or menu=="EXPLOIT_REDSIDE" or menu=="EXPLOIT_REDSIDE_WILD" or menu=="EXPLOIT_REDSIDE_PETS"
+    return menu=="EXPLOIT_PUTIN" or menu=="EXPLOIT_AUTO_FARM" or menu=="EXPLOIT_SEED" or menu=="EXPLOIT_WAVESHIELD" or menu=="EXPLOIT_ELECTRON" or menu=="EXPLOIT_REDSIDE" or menu=="EXPLOIT_REDSIDE_WILD" or menu=="EXPLOIT_REDSIDE_PETS"
 end
 function Menu.Helpers.GetExploitCategoryOptions(menu)
+    if menu == "EXPLOIT_AUTO_FARM" then return Menu.Helpers.GetAutoFarmOptions() end
     return Menu.Data.Options[menu] or {}
 end
 function Menu.Helpers.MigrateReorganizedBind(bind)
@@ -23229,6 +23237,14 @@ function ExecuteMenuAction(menu, index, listOverride)
         elseif type(choice)=="table" and choice.id=="redside_group" then
             Menu.State.currentMenu=choice.destination
             Menu.State.selectedOption,Menu.State.startIndex=1,1
+        elseif type(choice)=="table" and choice.id=="exploit_auto_farm" then
+            Menu.State.currentMenu = "EXPLOIT_AUTO_FARM"
+            Menu.State.selectedOption, Menu.State.startIndex = 1, 1
+            Menu.Actions.LoadAutoFarm()
+        elseif type(choice)=="table" and choice.id=="auto_farm_start" then
+            Menu.Actions.AutoFarmCommand("start")
+        elseif type(choice)=="table" and choice.id=="auto_farm_stop" then
+            Menu.Actions.AutoFarmCommand("stop")
         elseif type(choice)=="table" and choice.id=="redside_ped" then
             Menu.Actions.ApplyRedsidePed(choice.model)
         elseif type(choice)=="table" and choice.type=="info" then return
@@ -23882,6 +23898,10 @@ _G.ExecuteMenuAction = ExecuteMenuAction
 Menu.Actions.ExecuteMenuAction = ExecuteMenuAction
 
 function Menu.Actions.HandleHorizontalNavigation(dir)
+    if Menu.State.currentMenu == "EXPLOIT_AUTO_FARM" then
+        Menu.Actions.ChangeAutoFarmOption(Menu.State.selectedOption, dir)
+        return
+    end
     if (Menu.State.currentMenu=='ONLINE' and Menu.State.onlineTab==4) or (Menu.State.currentMenu=='TROLL' and Menu.State.trollTab==4) then
         local list=Menu.Helpers.GetFullListForMenu(Menu.State.currentMenu)
         local item=list and list[Menu.State.selectedOption or 1]
@@ -26863,6 +26883,529 @@ end, false)
     end
 end)()
 
+-- DynastyRP farm logic supplied by the user. The injected worker has no renderer.
+;(function()
+    local payload = [========[
+local CFG = {
+    drug = "auto",           -- auto = meilleur prix connu; ou "extasy", "coke", etc.
+    batch = 50,              -- nombre de matieres premieres vise par trajet
+    collisionTimeoutMs = 15000, -- temps maximal de chargement apres une teleportation
+    returnTimeoutMs = 10000,    -- chargement du decor au retour si le TP est annule
+    positionSettleMs = 1200,    -- actualisation de la position dans le gamemode
+    arrival = 2.8,           -- interaction du serveur a moins de 4 metres
+    noProgressMs = 60000,    -- absence de changement d'inventaire
+    restartDelayMs = 10000,
+    settleMs = 1500,         -- laisser arriver les notifications de fin/inventaire
+    items = {               -- completer ici si les noms d'items ont change
+        -- extasy = { raw = "extasy", product = "extasy_pooch" },
+    },
+}
+
+local previous = _G.DynastyAutoFarm
+if previous and previous.unload then
+    previous.unload()
+end
+
+local S = {
+    loaded = true, active = false, busy = false, action = false,
+    status = "Arrete", cycles = 0, handlers = {},
+    livePrices = previous and previous.livePrices or {},
+    lastStart = previous and previous.lastStart or -10000,
+    lastStop = previous and previous.lastStop or -10000,
+    returning = previous and previous.returning or nil,
+}
+_G.DynastyAutoFarm = S
+
+local function shared()
+    if type(getSharedObject) == "function" then return getSharedObject() end
+    return _KhJa9W0
+end
+
+local function say(message)
+    S.lastMessage = tostring(message)
+    Lapsus.print("[Mirage Auto Farm] " .. S.lastMessage)
+end
+
+local function now() return GetGameTimer() end
+local function pause(ms) Lapsus.Wait(ms) end
+local function distance(a, b)
+    return math.sqrt((a.x - b.x)^2 + (a.y - b.y)^2 + (a.z - b.z)^2)
+end
+local function position() return GetEntityCoords(PlayerPedId()) end
+local function data()
+    local core = shared()
+    return core and core.PlayerData
+end
+local function count(name)
+    local player = data()
+    if not player or type(player.inventory) ~= "table" then
+        error("Inventaire indisponible : attends le chargement du personnage.", 0)
+    end
+    local total = 0
+    for _, item in pairs(player.inventory) do
+        if type(item) == "table" and item.name == name then
+            total = total + (tonumber(item.count) or 0)
+        end
+    end
+    return total
+end
+
+local function finishAction()
+    if S.action then
+        S.action = false
+        S.lastStop = now()
+        TriggerServerEvent("drugs:stop")
+    end
+end
+
+local function finishTeleport(rollback)
+    local transfer = S.teleport
+    if not transfer then return end
+    S.teleport = nil
+    if DoesEntityExist(transfer.ped) then
+        if rollback and not IsEntityDead(transfer.ped) then
+            local p = transfer.origin
+            RequestCollisionAtCoord(p.x, p.y, p.z)
+            SetEntityCoordsNoOffset(transfer.ped, p.x, p.y, p.z, false, false, true)
+            SetEntityVelocity(transfer.ped, 0.0, 0.0, 0.0)
+            -- Le depart peut avoir ete decharge pendant l'attente a destination.
+            transfer.pending = true
+            S.returning = transfer
+            Lapsus.CreateThread(function()
+                local started = now()
+                pause(0)
+                while transfer.pending and DoesEntityExist(transfer.ped)
+                    and not IsEntityDead(transfer.ped) do
+                    RequestCollisionAtCoord(p.x, p.y, p.z)
+                    if HasCollisionLoadedAroundEntity(transfer.ped) then break end
+                    if now() - started >= CFG.returnTimeoutMs then
+                        say("Chargement du point de depart incomplet : farm arrete.")
+                        break
+                    end
+                    pause(100)
+                end
+                if transfer.pending and DoesEntityExist(transfer.ped) then
+                    FreezeEntityPosition(transfer.ped, transfer.wasFrozen)
+                end
+                transfer.pending = false
+                if S.returning == transfer then S.returning = nil end
+            end)
+            return
+        end
+        FreezeEntityPosition(transfer.ped, transfer.wasFrozen)
+    end
+end
+
+local function stop(message)
+    S.active = false
+    finishAction()
+    finishTeleport(true)
+    if S.moving then ClearPedTasks(PlayerPedId()) end
+    S.moving = false
+    S.status = "Arrete"
+    if message then say(message) end
+end
+
+function S.unload()
+    stop()
+    S.loaded = false
+    for _, handler in ipairs(S.handlers) do RemoveEventHandler(handler) end
+end
+
+local function validPoint(p)
+    return p and type(p.x) == "number" and type(p.y) == "number"
+        and type(p.z) == "number"
+end
+local function permitted(name)
+    local required = DrugsWhitelist and DrugsWhitelist[name]
+    local player = data()
+    return not required or required == "" or
+        (player and player.job2 and player.job2.name == required)
+end
+local function price(name)
+    if S.livePrices[name] then return S.livePrices[name], "mise a jour serveur" end
+    local fn = DrugsPrices and DrugsPrices[name]
+    if type(fn) == "function" then
+        local ok, value = pcall(fn, "auto", 1.0)
+        value = ok and tonumber(value)
+        if value and value > 0 then return value, "configuration" end
+    end
+end
+local function selectRoute()
+    local selected, highest = nil, -1
+    for name, zones in pairs(DrugsZones or {}) do
+        if (CFG.drug == "auto" or CFG.drug == name) and permitted(name)
+            and validPoint(zones.harvest) and validPoint(zones.transform)
+            and validPoint(zones.sell) then
+            local value, origin = price(name)
+            -- Une selection manuelle reste possible pour un prix non expose.
+            value = value or (CFG.drug == name and 0 or -1)
+            if value > highest or (value == highest and selected and name < selected.name) then
+                local items = CFG.items[name] or {}
+                selected = { name = name, price = value, origin = origin or "inconnu",
+                    raw = items.raw or name, product = items.product or name .. "_pooch",
+                    zones = {} }
+                for _, stage in ipairs({"harvest", "transform", "sell"}) do
+                    local p = zones[stage]
+                    selected.zones[stage] = {x = p.x, y = p.y, z = p.z}
+                end
+                highest = value
+            end
+        end
+    end
+    if not selected then error("Aucune filiere complete accessible avec un prix connu.", 0) end
+    return selected
+end
+
+local function guard(route)
+    if not S.loaded or not S.active then return false end
+    if now() - S.lastContact > 6000 then error("Connexion au menu perdue : farm arrete.", 0) end
+    local player, core = data(), shared()
+    if not player or not player.PassJoin then error("Personnage non charge.", 0) end
+    if IsEntityDead(PlayerPedId()) then error("Personnage mort : farm arrete.", 0) end
+    if player.jail and (tonumber(player.jail.time) or 0) > 0 then
+        error("Personnage en prison : farm arrete.", 0)
+    end
+    if not core.GetGameInstanceType or core.GetGameInstanceType() ~= "roleplay" then
+        error("Le personnage doit etre dans l'instance roleplay.", 0)
+    end
+    if route then
+        if not permitted(route.name) then error("Acces a la filiere modifie.", 0) end
+        local live = DrugsZones and DrugsZones[route.name]
+        for stage, point in pairs(route.zones) do
+            if not live or not validPoint(live[stage]) or distance(point, live[stage]) > 0.1 then
+                error("Points de farm modifies : relance pour actualiser le trajet.", 0)
+            end
+        end
+    end
+    return true
+end
+
+local function awaitCondition(route, predicate, timeout, message)
+    local start = now()
+    while guard(route) do
+        if predicate() then return true end
+        if now() - start > timeout then error(message, 0) end
+        pause(200)
+    end
+    return false
+end
+
+local function navigate(route, stage)
+    if not guard(route) then return false end
+    finishAction()
+    local target, ped = route.zones[stage], PlayerPedId()
+    S.status = "Teleportation : " .. stage
+    S.moving = true
+    local current = GetVehiclePedIsIn(ped, false)
+    if current ~= 0 then
+        TaskLeaveVehicle(ped, current, 16)
+        if not awaitCondition(route, function() return GetVehiclePedIsIn(ped, false) == 0 end,
+            5000, "Impossible de sortir du vehicule avant la teleportation.") then return false end
+    end
+    if not guard(route) then return false end
+    local origin = position()
+    S.teleport = {ped=ped, origin={x=origin.x, y=origin.y, z=origin.z},
+        wasFrozen=IsEntityPositionFrozen(ped)}
+    FreezeEntityPosition(ped, true)
+    ClearPedTasks(ped)
+    SetEntityVelocity(ped, 0.0, 0.0, 0.0)
+    RequestCollisionAtCoord(target.x, target.y, target.z + 1.0)
+    SetEntityCoordsNoOffset(ped, target.x, target.y, target.z + 1.0, false, false, true)
+    -- Verifier le decor a destination apres une mise a jour du jeu.
+    pause(0)
+    if not awaitCondition(route, function()
+        RequestCollisionAtCoord(target.x, target.y, target.z + 1.0)
+        return HasCollisionLoadedAroundEntity(ped)
+    end, CFG.collisionTimeoutMs, "Decor non charge : teleportation annulee.") then return false end
+    if distance(position(), target) >= CFG.arrival then
+        error("Teleportation non confirmee a destination : farm arrete.", 0)
+    end
+    finishTeleport(false)
+    S.moving = false
+    pause(CFG.positionSettleMs)
+    return guard(route)
+end
+
+local function stageDone(route, stage)
+    if stage == "harvest" then return count(route.raw) >= CFG.batch end
+    if stage == "transform" then return count(route.raw) == 0 end
+    return count(route.product) == 0
+end
+
+local function operate(route, stage)
+    if stageDone(route, stage) then return true end
+    if not navigate(route, stage) then return false end
+    while guard(route) and (now() - S.lastStart < CFG.restartDelayMs
+        or now() - S.lastStop < CFG.settleMs) do pause(200) end
+    if not guard(route) then return false end
+    if distance(position(), route.zones[stage]) >= 3.8 then error("Trop loin du point d'interaction.", 0) end
+    S.status = stage .. " : " .. route.name
+    say(S.status)
+    S.serverStopped = false
+    local rawBefore, productBefore = count(route.raw), count(route.product)
+    local previousRaw, previousProduct = rawBefore, productBefore
+    local lastProgress = now()
+    S.action = true
+    S.lastStart = now()
+    TriggerServerEvent("drugs:start", route.name, stage)
+    while guard(route) do
+        pause(250)
+        if not guard(route) then return false end
+        if distance(position(), route.zones[stage]) >= 3.8 then error("Tu as quitte le point de farm.", 0) end
+        local raw, product = count(route.raw), count(route.product)
+        if raw ~= previousRaw or product ~= previousProduct then
+            lastProgress, previousRaw, previousProduct = now(), raw, product
+        end
+        if stageDone(route, stage) then
+            if stage == "transform" then
+                -- Retrait du brut et ajout du produit peuvent arriver separement.
+                local ended = now()
+                while guard(route) and now() - ended < CFG.settleMs do pause(100) end
+                if not guard(route) then return false end
+            end
+            finishAction()
+            return true
+        end
+        -- Si la recolte a rempli l'inventaire, traiter le lot deja acquis.
+        if S.serverStopped or now() - lastProgress > CFG.noProgressMs then
+            finishAction()
+            if stage == "harvest" and raw > rawBefore then
+                say("Recolte terminee avec " .. raw .. " unites; passage au traitement.")
+                return true
+            end
+            if stage == "transform" then
+                local ended = now()
+                while guard(route) and now() - ended < CFG.settleMs do pause(100) end
+                if not guard(route) then return false end
+                if count(route.product) > productBefore then
+                    say("Traitement partiel : vente des produits obtenus.")
+                    return true
+                end
+            end
+            error("Etape " .. stage .. " interrompue ou sans progression; verifie ingredients, place et noms d'items.", 0)
+        end
+    end
+    return false
+end
+
+S.handlers[#S.handlers + 1] = AddEventHandler("drugs:stop", function()
+    S.lastStop = now()
+    if S.action then S.serverStopped = true; S.action = false end
+end)
+S.handlers[#S.handlers + 1] = AddEventHandler("staffdrugs:populate", function(records)
+    if type(records) ~= "table" then return end
+    S.livePrices = {}
+    for _, record in pairs(records) do
+        if type(record) == "table" and record.name and tonumber(record.price)
+            and tonumber(record.price) > 0 then
+            S.livePrices[record.name] = tonumber(record.price)
+        end
+    end
+end)
+
+local function start()
+    if not S.loaded then return end
+    if S.active then stop("Farm arrete."); return end
+    if S.busy then say("Arret en cours; attends une seconde."); return end
+    S.active, S.busy = true, true
+    Lapsus.CreateThread(function()
+        local ok, failure = pcall(function()
+            while guard() and S.returning and S.returning.pending do
+                S.status = "Chargement du point de depart"
+                pause(100)
+            end
+            if S.returning and not S.returning.pending then S.returning = nil end
+            while guard() do
+                local route = selectRoute()
+                S.route = route
+                say(("Filiere %s, prix unitaire de reference %s (%s).")
+                    :format(route.name, route.price, route.origin))
+                -- Vendre d'abord les produits deja transportes, puis traiter le brut restant.
+                if count(route.product) > 0 and not operate(route, "sell") then return end
+                if count(route.raw) == 0 and not operate(route, "harvest") then return end
+                if not operate(route, "transform") then return end
+                local remainingRaw = count(route.raw)
+                if count(route.product) == 0 then error("Traitement sans produit fini reconnu.", 0) end
+                if not operate(route, "sell") then return end
+                if remainingRaw > 0 then
+                    error("Produits vendus; il reste " .. remainingRaw .. " matieres premieres. Verifie les ingredients avant de relancer.", 0)
+                end
+                S.cycles = S.cycles + 1
+                say("Cycle termine : " .. S.cycles)
+                pause(500)
+            end
+        end)
+        -- Un ancien worker decharge ne doit jamais arreter une nouvelle instance.
+        if S.loaded then stop(not ok and tostring(failure) or nil) end
+        S.busy = false
+    end)
+end
+
+local labels = {extasy="Ecstasy", coke="Cocaine", weed="Cannabis", meth="Methamphetamine", opium="Opium"}
+local function routes()
+    local names = {}
+    for name, zones in pairs(DrugsZones or {}) do
+        if type(name) == "string" and permitted(name) and validPoint(zones.harvest)
+            and validPoint(zones.transform) and validPoint(zones.sell) then
+            names[#names+1] = name
+        end
+    end
+    table.sort(names)
+    table.insert(names, 1, "auto")
+    return names
+end
+
+local function publish(includeRoutes)
+    local raw, product = 0, 0
+    if S.route then
+        local ok, a, b = pcall(function() return count(S.route.raw), count(S.route.product) end)
+        if ok then raw, product = a, b end
+    end
+    local options
+    if includeRoutes then
+        local ok, result = pcall(routes)
+        if ok then options = result end
+    end
+    TriggerEvent(replyEvent, {
+        active=S.active, busy=S.busy or (S.returning and S.returning.pending) or false,
+        status=S.status, message=S.lastMessage, cycles=S.cycles, raw=raw, product=product,
+        route=S.route and (labels[S.route.name] or S.route.name) or nil,
+        options=options,
+    })
+end
+
+S.handlers[#S.handlers + 1] = AddEventHandler(requestEvent, function(action, drug, batch)
+    if not S.loaded then return end
+    S.lastContact = now()
+    if action == "start" and not S.active and not S.busy and not (S.returning and S.returning.pending) then
+        local available = routes()
+        CFG.drug = "auto"
+        for _, name in ipairs(available) do
+            if drug == name then CFG.drug = drug; break end
+        end
+        if type(batch) == "number" and batch % 1 == 0 and batch >= 10 and batch <= 250 then CFG.batch = batch end
+        S.lastMessage = nil
+        S.status = "Demarrage"
+        start()
+    elseif action == "stop" and (S.active or S.busy) then
+        stop("Farm arrete depuis le menu.")
+    end
+    publish(action == "options")
+end)
+
+S.handlers[#S.handlers + 1] = AddEventHandler("onResourceStop", function(resource)
+    if resource == GetCurrentResourceName() then S.unload() end
+end)
+publish(true)
+]========]
+    local farm = {drug="auto", batch=3, routes={"auto"}, status="Non charge"}
+    local batches = {10, 25, 50, 100, 250}
+    local batchLabels = {"10", "25", "50", "100", "250"}
+    local labels = {auto="Auto : meilleur prix connu", extasy="Ecstasy", coke="Cocaine",
+        weed="Cannabis", meth="Methamphetamine", opium="Opium"}
+    local request, replyHandler, lastReply, optionsRequested
+    local function disconnect(status)
+        if replyHandler then RemoveEventHandler(replyHandler); replyHandler=nil end
+        request, lastReply, optionsRequested = nil, nil, nil
+        farm.active, farm.busy, farm.pending = false, false, nil
+        farm.status = status
+    end
+
+    local function send(action)
+        if not request then return end
+        if action == "options" then optionsRequested = GetGameTimer() end
+        TriggerEvent(request, action, farm.drug, batches[farm.batch])
+    end
+
+    function Menu.Actions.LoadAutoFarm()
+        if request then send("options"); return end
+        farm.status, farm.message, farm.pending = "Connexion a Putin...", nil, "loading"
+        local channel = "mirage:dynastyFarm:" .. tostring(GetGameTimer()) .. ":" .. tostring({})
+        request = channel .. ":request"
+        local reply = channel .. ":reply"
+        lastReply = GetGameTimer()
+        replyHandler = AddEventHandler(reply, function(snapshot)
+            if type(snapshot) ~= "table" then return end
+            lastReply = GetGameTimer()
+            farm.active, farm.busy, farm.pending = snapshot.active == true, snapshot.busy == true, nil
+            farm.status, farm.message = snapshot.status, snapshot.message
+            farm.cycles, farm.route = snapshot.cycles, snapshot.route
+            farm.raw, farm.product = snapshot.raw, snapshot.product
+            if type(snapshot.options) == "table" and #snapshot.options > 0 then
+                farm.routes = snapshot.options
+                local found = false
+                for _, name in ipairs(farm.routes) do
+                    if name == farm.drug then found = true; break end
+                end
+                if not found and not farm.active and not farm.busy then farm.drug = "auto" end
+            end
+        end)
+        local header = ("local requestEvent, replyEvent = %q, %q\n"):format(request, reply)
+        local ok, accepted, reason = pcall(Lapsus_InjectResource_compat, "Putin", header .. payload)
+        if not ok or not accepted then
+            print("[Mirage Auto Farm] " .. tostring(ok and reason or accepted))
+            disconnect("Ressource Putin indisponible")
+        end
+    end
+
+    local function drugIndex()
+        for i, name in ipairs(farm.routes) do if name == farm.drug then return i end end
+        return 1
+    end
+
+    function Menu.Helpers.GetAutoFarmOptions()
+        local routeLabels = {}
+        for i, name in ipairs(farm.routes) do routeLabels[i] = labels[name] or name end
+        return {
+            {type="action", name="Demarrer", id="auto_farm_start"},
+            {type="action", name="Arreter", id="auto_farm_stop"},
+            {type="selector", name="Filiere", id="auto_farm_drug", options=routeLabels, valueIdx=drugIndex()},
+            {type="selector", name="Quantite par lot", id="auto_farm_batch", options=batchLabels, valueIdx=farm.batch},
+            {type="info", name="Etat", badge=(farm.pending and farm.pending ~= "loading") and "En attente..." or farm.status or "-"},
+            {type="info", name="Filiere retenue", badge=farm.route or "-"},
+            {type="info", name="Inventaire", badge=("%d brut / %d finis"):format(farm.raw or 0, farm.product or 0)},
+            {type="info", name="Cycles termines", badge=tostring(farm.cycles or 0)},
+            {type="info", name="Dernier message", badge=farm.message or "-"},
+        }
+    end
+
+    function Menu.Actions.ChangeAutoFarmOption(index, dir)
+        if farm.active or farm.busy or farm.pending then return end
+        if index == 3 then
+            farm.drug = farm.routes[(drugIndex() - 1 + dir) % #farm.routes + 1]
+        elseif index == 4 then
+            farm.batch = (farm.batch - 1 + dir) % #batches + 1
+        end
+    end
+
+    function Menu.Actions.AutoFarmCommand(action)
+        if not request then Menu.Actions.LoadAutoFarm() end
+        if not request or farm.pending then return end
+        if action == "start" and (farm.active or farm.busy) then return end
+        if action == "stop" and not (farm.active or farm.busy) then return end
+        farm.pending = action
+        send(action)
+    end
+
+    CreateThread(function()
+        while true do
+            Wait(500)
+            if request then
+                local now = GetGameTimer()
+                if now - lastReply >= 5000 then
+                    disconnect("Connexion perdue : rouvre Auto Farm")
+                elseif farm.active or farm.busy or farm.pending
+                    or (Menu.State.menuOpen and Menu.State.currentMenu == "EXPLOIT_AUTO_FARM") then
+                    send((not optionsRequested or now - optionsRequested >= 3000) and "options" or "status")
+                else
+                    lastReply = now
+                end
+            end
+        end
+    end)
+end)()
+
 -- Bridge d'affichage NUI : conserve les entrees clavier et les actions du script.
 ;(function()
 local base=_G.MirageNuiBaseUrl
@@ -27120,6 +27663,11 @@ local function rowFor(item,index,menu,S)
     if type(item)=='table' then
         row.label=tostring(item.name or item.label or item.display or item.model or '')
         row.kind=tostring(item.type or 'action')
+        if type(item.badge) == 'string' then row.badge = item.badge end
+        if item.type == 'veh_entry' then
+            row.occupancy = item.isOccupied and 'occupied' or 'free'
+            row.badge = math.floor(item.dist) .. ' m'
+        end
         if item.id=='exploit_redside' then
             row.badge=tostring(#(Menu.Data.Options.EXPLOIT_REDSIDE_WILD or {}) + #(Menu.Data.Options.EXPLOIT_REDSIDE_PETS or {}))
         elseif item.id=='redside_group' then
@@ -27173,6 +27721,7 @@ local function rowFor(item,index,menu,S)
     return row
 end
 local redsideNuiTitles={
+    EXPLOIT_AUTO_FARM='Auto Farm',
     EXPLOIT_REDSIDE='Redside',
     EXPLOIT_REDSIDE_WILD='Redside - Animaux',
     EXPLOIT_REDSIDE_PETS='Redside - Chiens, chats et renards'
@@ -27425,7 +27974,7 @@ Citizen.CreateThread(function()
         local now=GetGameTimer()
         if Menu.State.startupInterfaceAllowed and not opened and now-lastOpen>=3000 and type(Lapsus)=='table' and type(Lapsus.CreateNui)=='function' then
             lastOpen=now
-            local ok,accepted=pcall(Lapsus.CreateNui,'mirage_live_menu',base..'/index.html?transport=direct&v=31-smooth-startup')
+            local ok,accepted=pcall(Lapsus.CreateNui,'mirage_live_menu',base..'/index.html?transport=direct&v=32-auto-farm')
             opened=ok and accepted==true
         end
         if opened and type(json)=='table' and type(json.encode)=='function' then
