@@ -1998,7 +1998,7 @@ local function GetBindToggleState(menu, index)
     end
     if menu == "PLAYER" then
         local item = Menu.Helpers.GetPlayerOptions()[index]
-        if type(item) == "table" and item.id == "anti_tp_collision" then return true, S.antiTpCollisionActive end
+        if type(item) == "table" and item.id == "anti_launch" then return true, S.antiLaunchActive end
     elseif menu == "MOVEMENT" then
         if index == 1 then return true, S.noclipActive
         elseif index == 3 then return true, S.slideActive
@@ -4426,6 +4426,7 @@ end
 local _CFG_FILE = "dynasty_config.txt"
 
 function Menu.Helpers.PromptKeyboardInput(title, defaultText, maxLen)
+    if _G.CustomInputActive then return nil end
     _G.CustomInputActive = true
     _G.CustomInputState = {
         title = title,
@@ -4449,8 +4450,8 @@ function Menu.Helpers.PromptKeyboardInput(title, defaultText, maxLen)
 
     local prevVK = {}
     local bsPrev = false
-    local enterPrev = false
-    local escapePrev = false
+    local enterPrev = Lapsus_GetAsyncKeyState_compat(0x0D)
+    local escapePrev = Lapsus_GetAsyncKeyState_compat(0x1B)
 
     local result = nil
     local shouldExit = false
@@ -4536,7 +4537,7 @@ end
 -- Demande une confirmation Oui/Non (ENTREE = oui, ECHAP = non)
 function Menu.Helpers.PromptConfirm(message)
     _G.CustomInputActive = true
-    _G.CustomInputState  = { title = message, inputBuffer = "", errorMsg = "ENTREE = Confirmer   ECHAP = Annuler" }
+    _G.CustomInputState = { title = message, confirm = true, inputBuffer = "", errorMsg = "ENTREE = Confirmer   ECHAP = Annuler" }
     -- Attendre que Enter et Escape soient relaches (evite declenchement immediat)
     if Lapsus and Lapsus_GetAsyncKeyState_compat then
         while Lapsus_GetAsyncKeyState_compat(0x0D) or Lapsus_GetAsyncKeyState_compat(0x1B) do
@@ -4839,7 +4840,7 @@ function Menu.Helpers.GetPlayerOptions()
         { type = "toggle", name = "Super Jump", state = "superJumpActive" },
         { type = "toggle", name = "Beast Jump", state = "beastJumpActive" },
         { type = "toggle", name = "Spinbot", state = "spinbotActive" },
-        { type = "toggle", name = "Anti TP", id = "anti_tp_collision", state = "antiTpCollisionActive" },
+        { type = "toggle", name = "Anti Launch", id = "anti_launch", state = "antiLaunchActive" },
         { type = "separator", name = "Self" },
         "Revive",
         {type="toggle",name="Anti Aim",id="anti_aim",state="antiAimActive"},
@@ -4862,7 +4863,7 @@ function Menu.Helpers.GetMovementOptions()
 end
 
 Menu.State.antiTpActive = false
-Menu.State.antiTpCollisionActive = false
+Menu.State.antiLaunchActive = false
 Menu.State.antiHeadshotActive = false
 
 Menu.Data.Options.Combat = {
@@ -7329,10 +7330,11 @@ function Menu.Helpers.MigrateReorganizedBind(bind)
     if bind.label=="Copy Ped" and (bind.menu=="ONLINE" or bind.menu=="TROLL") then bind.label="Copy Outfit" end
     local name=bind.label
     local menu=bind.menu
-    if menu == "PLAYER" and (name == "Revive" or name == "Anti Aim" or name == "Anti TP") then
+    if menu == "PLAYER" and name == "Anti TP" then name = "Anti Launch" end
+    if menu == "PLAYER" and (name == "Revive" or name == "Anti Aim" or name == "Anti Launch") then
         for index, item in ipairs(Menu.Helpers.GetPlayerOptions()) do
             local label = type(item) == "table" and item.name or item
-            if label == name then bind.index = index; return end
+            if label == name then bind.index = index; bind.label = name; return end
         end
     end
     if menu=="ONLINE" or menu=="TROLL" then
@@ -14900,17 +14902,17 @@ function Menu.Actions.TogglePutinAntiTeleport(enable)
     return true
 end
 
-function Menu.Actions.ToggleAntiTpCollision()
-    Menu.State.antiTpCollisionActive = not Menu.State.antiTpCollisionActive
-    local message = Menu.State.antiTpCollisionActive and "Collisions entre joueurs desactivees" or "Collisions entre joueurs retablies"
-    ShowDynastyNotification("[ ANTI TP ] " .. message)
+function Menu.Actions.ToggleAntiLaunch()
+    Menu.State.antiLaunchActive = not Menu.State.antiLaunchActive
+    local message = Menu.State.antiLaunchActive and "Collisions entre joueurs desactivees" or "Collisions entre joueurs retablies"
+    ShowDynastyNotification("[ ANTI LAUNCH ] " .. message)
 end
 
 CreateThread(function()
     local otherPeds = {}
     local nextScan = 0
     while true do
-        if not Menu.State.antiTpCollisionActive then
+        if not Menu.State.antiLaunchActive then
             nextScan = 0
             Wait(100)
         else
@@ -22539,104 +22541,27 @@ CreateThread(function()
     end
 end)
 
-Menu.State.staffAbuseActive=false
-function Menu.Actions.SetStaffAbuse(enable)
-    enable=enable==true
-    local ok,result=pcall(function()
-        if not Lapsus or type(Lapsus.GetResources)~="function" or type(Lapsus.InjectResource)~="function" then error("API Lapsus indisponible.") end
-        local target
-        for _,name in ipairs(Lapsus.GetResources()) do
-            if type(name)=="string" and name:lower()=="putin" then target=name;break end
-        end
-        if not target then error("Ressource Putin introuvable.") end
-        local code=("local enabled=%s\n"):format(tostring(enable)) .. [====[
+Menu.State.staffAbuseActive = false
 do
-    local key='_mirageStaffWeaponsController'
-    local previous=_G[key]
-    if previous and type(previous.dispose)=='function' then previous.dispose() end
-    if not enabled then return end
-    if type(_FRL)~='table' or type(_FRL.ShowNotification)~='function'
-        or type(SetCurrentPedWeapon)~='function' or type(GetSelectedPedWeapon)~='function' then
-        ;return
-    end
-    local framework=_FRL
-    local originalSet,originalNotify=SetCurrentPedWeapon,framework.ShowNotification
-    local controller={active=true}
-    local unarmed=GetHashKey('WEAPON_UNARMED')
-    local function same(a,b)return type(a)=='number' and type(b)=='number' and a%4294967296==b%4294967296 end
-    local function inRestrictedService()
-        local data=framework.PlayerData
-        local service=AdminSystem and AdminSystem.Service
-        return data and service and service.enabled==true and data.group
-            and data.group~='admin' and data.group~='elite' and data.group~='owner'
-    end
-    local setWrapper=function(ped,weapon,...)
-        if controller.active and inRestrictedService() and ped==PlayerPedId() and same(weapon,unarmed) then
-            local info=debug and type(debug.getinfo)=='function' and debug.getinfo(2,'f')
-            local caller=info and info.func
-            -- Once identified by its real notification, stop this specific routine before holstering.
-            if caller and caller==controller.staffRoutine then
-                controller.pending=nil
-                return
-            end
-            local selected=GetSelectedPedWeapon(ped)
-            if not same(selected,unarmed) and not same(selected,-2009644972) then
-                controller.pending={ped=ped,weapon=selected,time=GetGameTimer(),caller=caller}
-            end
-        end
-        return originalSet(ped,weapon,...)
-    end
-    local notifyWrapper=function(message,...)
-        if controller.active and inRestrictedService() and message=="Vous ne pouvez pas sortir d'arme en étant en service" then
-            local info=debug and type(debug.getinfo)=='function' and debug.getinfo(2,'f')
-            local caller=info and info.func
-            if caller and caller==controller.staffRoutine and not same(GetSelectedPedWeapon(PlayerPedId()),unarmed) then return end
-            local pending=controller.pending
-            controller.pending=nil
-            if pending and pending.ped==PlayerPedId() and (GetGameTimer()-pending.time)%4294967296<=100 then
-                if caller and caller==pending.caller then
-                    controller.staffRoutine=caller
-                elseif not controller.identificationErrorReported then
-                    controller.identificationErrorReported=true
-                    
+    local workerRunning = false
+    function Menu.Actions.SetStaffAbuse(enable)
+        Menu.State.staffAbuseActive = enable == true
+        if Menu.State.staffAbuseActive and not workerRunning then
+            workerRunning = true
+            CreateThread(function()
+                local unarmed = GetHashKey('WEAPON_UNARMED')
+                while Menu.State.staffAbuseActive do
+                    local ped = PlayerPedId()
+                    if DoesEntityExist(ped) then RemoveWeaponFromPed(ped, unarmed) end
+                    Wait(250)
                 end
-                -- Restore at most the first identification pass; later passes never switch weapons.
-                if same(GetSelectedPedWeapon(pending.ped),unarmed) then
-                    local ok,err=pcall(originalSet,pending.ped,pending.weapon,true)
-                    if not ok and not controller.errorReported then
-                        controller.errorReported=true
-                        
-                    end
-                end
-                if same(GetSelectedPedWeapon(pending.ped),pending.weapon) then return end
-            end
+                workerRunning = false
+            end)
         end
-        return originalNotify(message,...)
-    end
-    function controller.dispose()
-        controller.active=false;controller.pending=nil
-        if SetCurrentPedWeapon==setWrapper then SetCurrentPedWeapon=originalSet end
-        if framework.ShowNotification==notifyWrapper then framework.ShowNotification=originalNotify end
-        if _G[key]==controller then _G[key]=nil end
-    end
-    SetCurrentPedWeapon=setWrapper
-    framework.ShowNotification=notifyWrapper
-    _G[key]=controller
-end
-]====]
-        local sent,err=Lapsus.InjectResource(target,code)
-        if sent==false then error(err or "Execution refusee par Lapsus.") end
+        ShowDynastyNotification(Menu.State.staffAbuseActive and "Staff Abuse ON" or "Staff Abuse OFF")
         return true
-    end)
-    if not ok then
-        ShowDynastyNotification('Staff Abuse failed')
-        return false
     end
-    Menu.State.staffAbuseActive=enable
-    ShowDynastyNotification('Staff Abuse '..(enable and 'ON' or 'OFF'))
-    return true
 end
-
 
 function ExecuteMenuAction(menu, index, listOverride)
     local menu = menu or Menu.State.currentMenu
@@ -23017,8 +22942,8 @@ function ExecuteMenuAction(menu, index, listOverride)
             PlaySoundFrontend(-1, "NAV_LEFT_RIGHT", "HUD_FRONTEND_DEFAULT_SOUNDSET", true)
             return
         end
-        if type(pitem) == "table" and pitem.id == "anti_tp_collision" then
-            Menu.Actions.ToggleAntiTpCollision()
+        if type(pitem) == "table" and pitem.id == "anti_launch" then
+            Menu.Actions.ToggleAntiLaunch()
             return
         end
         if type(pitem)=='table' and pitem.id=='anti_aim' then
@@ -27939,6 +27864,7 @@ end
 -- Authentification visuelle NUI ; la validation et la saisie restent dans le Lua existant.
 local originalBindingUI=RenderBindingUI
 RenderBindingUI=function(...)
+    if _G.CustomInputActive and _G._mirageNuiEnabled and (Menu.State.nuiConfigUntil or 0)>GetGameTimer() then return end
     if ((_G.AuthState and _G.AuthState.active) or isFirstLoadBinding or _G.isBindingNoclip) and _G._mirageNuiEnabled
         and (_G._mirageNuiUntil or 0)>GetGameTimer() then return end
     return originalBindingUI(...)
@@ -27963,6 +27889,12 @@ function Menu.Helpers.BuildNuiAuth()
         name=tostring(auth.confirmName or ''),selected=auth.confirmBtn or 1,
         length=math.min(128,#tostring(auth.inputBuffer or '')),
         error=auth.errorMsg and (auth.errorTimer or 0)>now and tostring(auth.errorMsg) or ''}
+end
+function Menu.Helpers.BuildNuiConfigInput()
+    local input = _G.CustomInputState or {}
+    return {active=_G._mirageNuiEnabled and _G.CustomInputActive==true and not Menu.State.isLoading,
+        title=tostring(input.title or ''), confirm=input.confirm==true,
+        input=tostring(input.inputBuffer or ''), error=tostring(input.errorMsg or '')}
 end
 function Menu.Helpers.BuildNuiGiveInput()
     local give=_G.GiveInputState or {}
@@ -28034,14 +27966,14 @@ Menu.Actions.HandleHorizontalNavigation=function(...)
 end
 Citizen.CreateThread(function()
     local opened,lastOpen,lastList,lastWidgets,lastSelection,lastContext,lastToast,lastAuth,lastLoading,lastBinding=false,-10000,-10000,-10000,nil,nil,0,nil,nil,nil
-    local lastModals,lastGiveInput=-10000,nil
+    local lastModals,lastGiveInput,lastConfigInput=-10000,nil,nil
     local lastValueRevision=-1
     local wasVisible=false
     while true do
         local now=GetGameTimer()
         if Menu.State.startupInterfaceAllowed and not opened and now-lastOpen>=3000 and type(Lapsus)=='table' and type(Lapsus.CreateNui)=='function' then
             lastOpen=now
-            local ok,accepted=pcall(Lapsus.CreateNui,'mirage_live_menu',base..'/index.html?transport=direct&v=32-auto-farm')
+            local ok,accepted=pcall(Lapsus.CreateNui,'mirage_live_menu',base..'/index.html?transport=direct&v=33-config-input')
             opened=ok and accepted==true
         end
         if opened and type(json)=='table' and type(json.encode)=='function' then
@@ -28072,6 +28004,14 @@ Citizen.CreateThread(function()
             local giveKey=json.encode(giveInput)
             if giveKey~=lastGiveInput or now%1000<120 then
                 if send('giveInput',giveInput) then lastGiveInput=giveKey end
+            end
+            local configInput=Menu.Helpers.BuildNuiConfigInput()
+            local configKey=json.encode(configInput)
+            if configKey~=lastConfigInput or (configInput.active and now>=(S.nuiConfigUntil or 0)-600) then
+                if send('configInput',configInput) then
+                    lastConfigInput=configKey
+                    S.nuiConfigUntil=configInput.active and now+1500 or 0
+                end
             end
             send('layout',{editing=S.nuiLayoutEditing==true,reset=S.nuiLayoutReset or 0})
             end

@@ -17,7 +17,8 @@ function draw(state){
  applyTheme(state.theme);
  const border=state.border||{enabled:false};
  menu.dataset.border=!border.enabled?'off':Number(border.style)===1?'simple':Number(border.style)===2?'glow':'animated';
- menu.style.display=state.visible?'block':'none';notice.hidden=true;if(!state.visible)return;
+ const visible=state.visible&&configPanel.hidden;
+ menu.style.display=visible?'block':'none';notice.hidden=true;if(!visible)return;
  document.querySelector('.heading').textContent=titles[state.menu]||state.title;
  const previousKey=document.getElementById('previousKey');if(previousKey)previousKey.textContent=state.help&&state.help.previous||'Q';
  const names=Array.isArray(state.tabs)?state.tabs:[],tk=JSON.stringify([names,state.activeTab]);
@@ -206,6 +207,25 @@ function drawGiveInput(value){
  document.getElementById('giveInputValue').textContent='WEAPON_'+suffix+(suffix?'│':'');
  document.getElementById('giveInputError').textContent=t(value.error||'');
 }
+const configPanel=document.getElementById('nuiConfigInput');
+function drawConfigInput(value){
+ if(!value)return;
+ configPanel.hidden=!value.active;
+ if(!value.active)return;
+ applyTheme(value.theme);
+ menu.style.display='none';notice.hidden=true;
+ authPanel.hidden=true;loadingPanel.hidden=true;bindingPanel.hidden=true;givePanel.hidden=true;
+ const name=String(value.input||'');
+ document.getElementById('configInputTitle').textContent=value.title||'Nom de la config';
+ document.getElementById('configInputField').hidden=!!value.confirm;
+ const fieldValue=document.getElementById('configInputValue');
+ fieldValue.textContent=name?name+'│':'Ex. Ma config';
+ fieldValue.classList.toggle('placeholder',!name);
+ document.getElementById('configInputDone').textContent=value.confirm?'Confirmer ↵':'Valider ↵';
+ document.getElementById('configInputHelp').textContent=value.confirm
+  ?'ENTRÉE Confirmer · ÉCHAP Annuler':'ENTRÉE Valider · RETOUR Effacer · ÉCHAP Annuler';
+ document.getElementById('configInputError').textContent=value.confirm?'':String(value.error||'');
+}
 window.addEventListener('message',event=>{
  let packet=event.data;if(typeof packet==='string'){try{packet=JSON.parse(packet)}catch{return}}
  if(!packet||packet.channel!=='mirage-ui-v3')return;
@@ -217,10 +237,11 @@ window.addEventListener('message',event=>{
  else if(packet.action==='loading')drawLoading(packet.value);
  else if(packet.action==='binding')drawBinding(packet.value);
  else if(packet.action==='giveInput')drawGiveInput(packet.value);
+ else if(packet.action==='configInput')drawConfigInput(packet.value);
 });
 const direct=new URLSearchParams(location.search).get('transport')==='direct';
 if(direct){
- setInterval(()=>{if(Date.now()-lastMessage>1800){if(frame){cancelAnimationFrame(frame);frame=0}pending=null;menu.style.display='none';hideWidgets();authPanel.hidden=true;loadingPanel.hidden=true;bindingPanel.hidden=true;givePanel.hidden=true;notice.hidden=false;notice.textContent='Waiting for Lapsus.SendNuiMessage. Make sure the updated Lua script is running.'}},500);
+ setInterval(()=>{if(Date.now()-lastMessage>1800){if(frame){cancelAnimationFrame(frame);frame=0}pending=null;menu.style.display='none';hideWidgets();authPanel.hidden=true;loadingPanel.hidden=true;bindingPanel.hidden=true;givePanel.hidden=true;configPanel.hidden=true;notice.hidden=false;notice.textContent='Waiting for Lapsus.SendNuiMessage. Make sure the updated Lua script is running.'}},500);
 }else{
  const state={visible:true,menu:'MAIN',title:'Main',tabs:['Main','Exploit','Settings'],activeTab:1,rows:['Player','Online Menu','Combat','Weapon','Vehicle','Misc'].map((label,index)=>({label,index:index+1,submenu:true})),selected:1,start:1,maxDisplay:6,banner:'/assets/mirage-banner.png?v=19',scale:.83,position:1,sidebar:'left'};
  consume({connected:true,state});notice.hidden=false;notice.textContent='Local preview. In Lapsus, updates arrive directly through SendNuiMessage.';
