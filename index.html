@@ -206,11 +206,14 @@ body.layout-editing.dragging [data-drag-handle]{cursor:grabbing}
 .vehicle-occupancy{flex:none;margin-left:auto;padding:2px 6px;border-radius:3px;font-size:10px;color:#a6e5bf;background:#224838}
 .vehicle-occupancy[data-state=occupied]{color:#ffd0cd;background:#593334}
 .vehicle-occupancy+.badge{margin-left:0}
-.gravity-hint{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);display:flex;align-items:center;justify-content:center;flex-wrap:wrap;gap:4px 8px;width:max-content;max-width:calc(100vw - 24px);padding:4px 7px;border:1px solid rgba(var(--theme-rgb),.25);border-radius:4px;background:linear-gradient(125deg,#111,#070707);box-shadow:0 3px 10px #0005;color:#ededed;font:9px/12px Arial,sans-serif;pointer-events:none}
-.gravity-hint-title{padding-right:7px;border-right:1px solid rgba(var(--theme-rgb),.35);font-size:9px;font-weight:600;white-space:nowrap}
-.gravity-hint-keys{display:flex;flex-wrap:wrap;justify-content:center;gap:3px 8px}
-.gravity-hint-key{display:flex;align-items:center;gap:4px;color:#bcbcbc;white-space:nowrap}
-.gravity-hint-key kbd{padding:0 3px;border:1px solid rgba(var(--theme-rgb),.4);border-radius:2px;background:#000;font:600 9px/12px Arial,sans-serif;color:#eee}
+.instruction-hint{position:fixed;left:50%;bottom:20px;transform:translateX(-50%);display:flex;align-items:center;justify-content:center;gap:12px;width:max-content;max-width:calc(100vw - 32px);min-height:34px;padding:6px 11px;border:1px solid rgba(var(--theme-rgb),.22);border-radius:6px;background:#000;box-shadow:0 5px 16px #0004;color:#ededed;font:11px/15px Arial,sans-serif;pointer-events:none}
+.instruction-title{padding-right:11px;border-right:1px solid rgba(var(--theme-rgb),.5);font-size:11px;font-weight:600;white-space:nowrap}
+.instruction-rows{display:flex;flex-direction:column;gap:5px;min-width:0}
+.instruction-row{display:flex;align-items:center;flex-wrap:wrap;gap:5px 10px}
+.instruction-mode{font-weight:600;color:#ededed;white-space:nowrap}
+.instruction-key{display:flex;align-items:center;gap:5px;color:#c6c6c6;white-space:nowrap}
+.instruction-key kbd{padding:0 4px;border:1px solid rgba(var(--theme-rgb),.6);border-radius:3px;background:#000;font:600 10px/14px Arial,sans-serif;color:#ededed}
+@media(max-width:540px){.instruction-hint{flex-wrap:wrap;gap:5px}.instruction-title{padding:0;border:0}.instruction-row{justify-content:center}}
 .mirage-dialog #loadingStatus{overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
 @keyframes loading-pulse{50%{opacity:.25}}
 @media(prefers-reduced-motion:reduce){.mirage-dialog .loading-dot{animation:none}.mirage-dialog .loading-track>div{transition:none}}
@@ -237,7 +240,7 @@ body.layout-editing.dragging [data-drag-handle]{cursor:grabbing}
   <div id="authConfirm" class="auth-confirm" hidden><div id="authName"></div><div class="auth-buttons"><span id="authConfirmYes">Confirm</span><span id="authConfirmChange">Change key</span></div></div>
   <footer class="dialog-footer"><span id="authHelp">ENTER Confirm · CTRL+V Paste</span><span id="authError" class="auth-error"></span></footer>
 </section>
-<aside id="gravityHint" class="gravity-hint" hidden aria-label="Commandes de Gravity Vehicle"></aside>
+<aside id="instructionHint" class="instruction-hint" hidden aria-label="Instruction"></aside>
 <section id="nuiLoading" class="loading-panel mirage-dialog" hidden aria-label="Mirage loading">
   <header class="dialog-header"><img src="/assets/mirage-crown-logo.png?v=21" alt="Mirage"><div><h1>MIRAGE</h1><p>Loading menu resources</p></div><span class="dialog-tag">LOADING</span></header>
   <div class="loading-body"><div class="loading-progress-row"><div class="loading-track" role="progressbar" aria-valuemin="0" aria-valuemax="100"><div id="loadingProgress"></div></div><strong id="loadingPercent">0%</strong></div><div class="loading-status-row"><span class="loading-dot" aria-hidden="true"></span><span id="loadingStatus">Preparing interface...</span></div></div>
@@ -250,4 +253,4 @@ body.layout-editing.dragging [data-drag-handle]{cursor:grabbing}
   <header class="dialog-header"><img src="/assets/mirage-crown-logo.png?v=21" alt="Mirage"><div><h1>MIRAGE</h1><p id="configInputTitle">Nom de la config</p></div><span class="dialog-tag">CONFIG</span></header>
   <div class="dialog-controls"><div id="configInputField" class="dialog-keybox"><span class="dialog-key-label">NOM</span><span id="configInputValue" class="placeholder">Ex. Ma config</span></div><span id="configInputDone" class="dialog-done">Valider ↵</span></div>
   <footer class="dialog-footer"><span id="configInputHelp"></span><span id="configInputError" class="auth-error"></span></footer>
-</section><section id="nuiBinding" class="binding-panel" hidden aria-label="Key binding"><header class="binding-header"><img src="/assets/mirage-crown-logo.png?v=21" alt="Mirage"><div><h1 id="bindingTitle">MIRAGE</h1><p id="bindingSubtitle">Choose the menu opening key</p></div><span class="binding-tag">KEYBIND</span></header><div class="binding-controls"><div class="binding-keybox"><span class="binding-key-label">KEY</span><span id="bindingKey">F12</span></div><div class="binding-done">Done ↵</div></div><footer id="bindingHelp">ENTER Confirm · ESC Keep F12</footer></section><div id="connectionStatus" class="connection-status">Open Mirage in Lapsus.</div><script src="/assets/en.js"></script><script src="/assets/layout.js"></script><script src="/assets/live.js?v=35-gravity-compact"></script></body></html>
+</section><section id="nuiBinding" class="binding-panel" hidden aria-label="Key binding"><header class="binding-header"><img src="/assets/mirage-crown-logo.png?v=21" alt="Mirage"><div><h1 id="bindingTitle">MIRAGE</h1><p id="bindingSubtitle">Choose the menu opening key</p></div><span class="binding-tag">KEYBIND</span></header><div class="binding-controls"><div class="binding-keybox"><span class="binding-key-label">KEY</span><span id="bindingKey">F12</span></div><div class="binding-done">Done ↵</div></div><footer id="bindingHelp">ENTER Confirm · ESC Keep F12</footer></section><div id="connectionStatus" class="connection-status">Open Mirage in Lapsus.</div><script src="/assets/en.js"></script><script src="/assets/layout.js"></script><script src="/assets/live.js?v=36-instruction"></script></body></html>

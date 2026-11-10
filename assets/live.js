@@ -94,29 +94,43 @@ function syncNotificationOutline(){
 }
 if(typeof ResizeObserver==='function')new ResizeObserver(syncNotificationOutline).observe(notification);
 window.addEventListener('resize',syncNotificationOutline);
-const gravityHint=document.getElementById('gravityHint');
-const gravityControls={
- 1:{name:'Normal',keys:[['Maj','Vol (maintenir)'],['W / S','Vitesse'],['Q / Z','Monter']]},
- 2:{name:'Target',keys:[['Y','Véhicule'],['Clic droit','Cible'],['E','Propulser (maintenir)']]}
+const instructionHint=document.getElementById('instructionHint');
+const instructionControls={
+ gravityNormal:{name:'Gravity · Normal',keys:[['Maj','Vol (maintenir)'],['W / S','Vitesse'],['Q / Z','Monter']]},
+ gravityTarget:{name:'Gravity · Target',keys:[['Y','Véhicule'],['Clic droit','Cible'],['E','Propulser (maintenir)']]},
+ rocket:{name:'Rocket',keys:[['Espace','Décoller / monter'],['Ctrl','Descendre / atterrir'],['W / S','Vitesse'],['A / D','Diriger'],['Maj','Boost'],['E','Figure']]},
+ roadster:{name:'Roadster',keys:[['Espace','Monter'],['Ctrl','Descendre'],['W / S','Vitesse'],['A / D','Diriger'],['Maj / E','Boost']]},
+ tower:{name:'Builder · Tower',keys:[['E','Empiler'],['G','Détacher']]},
+ cross:{name:'Builder · Cross',keys:[['E','Assembler'],['G','Détacher']]}
 };
-function drawGravityHint(mode){
- const controls=gravityControls[mode];
- gravityHint.hidden=!controls;
- if(!controls||gravityHint.dataset.mode===controls.name)return;
- gravityHint.dataset.mode=controls.name;
- const keys=el('div','gravity-hint-keys');
- for(const [key,label] of controls.keys){
-  const pair=el('span','gravity-hint-key');
-  pair.append(el('kbd','',key),el('span','',label));
-  keys.append(pair);
+function drawInstructions(value){
+ const modes=typeof value==='string'?value:'';
+ if(!modes){instructionHint.hidden=true;return}
+ if(instructionHint.dataset.modes!==modes){
+  const rows=el('div','instruction-rows');
+  for(const mode of modes.split(',')){
+   const controls=instructionControls[mode];
+   if(!controls)continue;
+   const row=el('div','instruction-row');
+   row.append(el('strong','instruction-mode',controls.name));
+   for(const [key,label] of controls.keys){
+    const pair=el('span','instruction-key');
+    pair.append(el('kbd','',key),el('span','',label));
+    row.append(pair);
+   }
+   rows.append(row);
+  }
+  if(!rows.childElementCount){instructionHint.hidden=true;return}
+  instructionHint.replaceChildren(el('strong','instruction-title','Instruction'),rows);
+  instructionHint.dataset.modes=modes;
  }
- gravityHint.replaceChildren(el('strong','gravity-hint-title','Gravity · '+controls.name),keys);
+ instructionHint.hidden=false;
 }
-function hideWidgets(){notification.hidden=true;bindsBox.hidden=true;spectatorsBox.hidden=true;drawGravityHint(0)}
+function hideWidgets(){notification.hidden=true;bindsBox.hidden=true;spectatorsBox.hidden=true;drawInstructions('')}
 function widgets(value){
  if(value)applyTheme(value.theme);
  if(!value||!value.enabled){hideWidgets();return}
- drawGravityHint(value.gravityMode);
+ drawInstructions(value.instructions);
  const binds=Array.isArray(value.binds)?value.binds:[],spectators=Array.isArray(value.spectators)?value.spectators:[];
  bindsBox.hidden=!value.bindsVisible||!binds.length;
  const bindRows=document.getElementById('bindRows');const bindsSignature=JSON.stringify(binds);

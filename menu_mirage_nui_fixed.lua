@@ -730,6 +730,7 @@ Menu.State = {
     deleteEntityMode = 1, -- 1: VEHICLE, 2: NPC, 3: PROP
     hudBindsVisible = true, -- HUD coin écran : touches actives
     spectatorListVisible = false, -- HUD Spectateur : désactivé par défaut
+    instructionVisible = true,
     onlineFilterVehicles = false,
     autoDriveActive = false,
     soloSessionActive = false,
@@ -7796,6 +7797,7 @@ function Menu.Helpers.GetSettingsUtilityOptions()
         { type = "toggle", name = "Spectator List", state = "spectatorListVisible" },
         { type = "toggle", name = "Move UI with Mouse", id = "move_ui", state = "nuiLayoutEditing" },
         { type = "button", name = "Reset UI Positions", id = "reset_ui_positions" },
+        { type = "toggle", name = "Instruction", id = "instruction", state = "instructionVisible" },
     }
 end
 
@@ -18675,9 +18677,7 @@ do
         if not enable then ShowDynastyNotification('[ '..mode:upper()..' ] OFF'); return end
         RequestNamedPtfxAsset('core')
         local token=generation
-        ShowDynastyNotification(mode=='rocket'
-            and '[ ROCKET ] ESPACE=vol/monter | CTRL=descendre/atterrir | E=flip directionnel | SHIFT=boost'
-            or '[ ROADSTER ] SHIFT/E=propulsion | ESPACE=poussee verticale | CTRL=descendre')
+        ShowDynastyNotification('[ '..mode:upper()..' ] ON')
         CreateThread(function()
             local ok,err=pcall(function()
                 while token==generation and Menu.State[flag] do
@@ -22773,6 +22773,10 @@ function ExecuteMenuAction(menu, index, listOverride)
         elseif type(item)=='table' and item.id=='reset_ui_positions' then
             Menu.State.nuiLayoutReset=(Menu.State.nuiLayoutReset or 0)+1
             ShowDynastyNotification('UI positions reset')
+            return
+        elseif type(item)=='table' and item.id=='instruction' then
+            Menu.State.instructionVisible = not Menu.State.instructionVisible
+            ShowDynastyNotification('[ INSTRUCTION ] ' .. (Menu.State.instructionVisible and 'ON' or 'OFF'))
             return
         end
     end
@@ -28009,16 +28013,23 @@ local function bindState(bind)
     end
     return GetBindToggleState(bind.menu,bind.index)
 end
-local function gravityHintMode()
+local function instructionKey()
     local state = Menu.State
-    return state.gravitateVehicleActive and state.gravitateVehicleMode or 0
+    if not state.instructionVisible then return '' end
+    local gravity = state.gravitateVehicleActive
+        and (state.gravitateVehicleMode == 2 and 'gravityTarget,' or 'gravityNormal,') or ''
+    return gravity
+        .. (state.rocketCarActive and 'rocket,' or '')
+        .. (state.roadsterActive and 'roadster,' or '')
+        .. (state.tourActive and 'tower,' or '')
+        .. (state.crossActive and 'cross,' or '')
 end
 function Menu.Helpers.BuildNuiWidgets()
     local S=Menu.State
     local widgets={enabled=_G._mirageNuiEnabled and _G.AuthDone==true,theme=themeForNui(),binds={},spectators={},
         bindsVisible=S.hudBindsVisible==true,spectatorsVisible=S.spectatorListVisible==true}
     if not widgets.enabled then return widgets end
-    widgets.gravityMode = gravityHintMode()
+    widgets.instructions = instructionKey()
     if S.hudBindsVisible and _G.UniversalKeyBinds then
         for ctrlId,bind in pairs(_G.UniversalKeyBinds) do
             Menu.Helpers.MigrateReorganizedBind(bind)
@@ -28164,13 +28175,13 @@ Citizen.CreateThread(function()
     local opened,lastOpen,lastList,lastWidgets,lastSelection,lastContext,lastToast,lastAuth,lastLoading,lastBinding=false,-10000,-10000,-10000,nil,nil,0,nil,nil,nil
     local lastModals,lastGiveInput,lastConfigInput=-10000,nil,nil
     local lastValueRevision=-1
-    local lastGravityHint=0
+    local lastInstructions=''
     local wasVisible=false
     while true do
         local now=GetGameTimer()
         if Menu.State.startupInterfaceAllowed and not opened and now-lastOpen>=3000 and type(Lapsus)=='table' and type(Lapsus.CreateNui)=='function' then
             lastOpen=now
-            local ok,accepted=pcall(Lapsus.CreateNui,'mirage_live_menu',base..'/index.html?transport=direct&v=35-gravity-compact')
+            local ok,accepted=pcall(Lapsus.CreateNui,'mirage_live_menu',base..'/index.html?transport=direct&v=36-instruction')
             opened=ok and accepted==true
         end
         if opened and type(json)=='table' and type(json.encode)=='function' then
@@ -28232,11 +28243,11 @@ Citizen.CreateThread(function()
             end
             wasVisible=visible
             local toastId=_G._mirageNuiToast and _G._mirageNuiToast.id or 0
-            local gravityMode=gravityHintMode()
-            if _G.AuthDone and (now-lastWidgets>=500 or toastId~=lastToast or gravityMode~=lastGravityHint) then
+            local instructions=instructionKey()
+            if _G.AuthDone and (now-lastWidgets>=500 or toastId~=lastToast or instructions~=lastInstructions) then
                 local ok,widgets=pcall(Menu.Helpers.BuildNuiWidgets)
                 if ok then send('widgets',widgets) end
-                lastWidgets,lastToast,lastGravityHint=now,toastId,gravityMode
+                lastWidgets,lastToast,lastInstructions=now,toastId,instructions
 
             end
         end
