@@ -566,6 +566,7 @@ function Lapsus_Unload_compat()
     if Menu and Menu.State and Menu.State.staffAbuseActive and Menu.Actions.SetStaffAbuse then pcall(Menu.Actions.SetStaffAbuse,false) end
     if Menu and Menu.Actions and Menu.Actions.CleanupPunchAll then pcall(Menu.Actions.CleanupPunchAll) end
     if Menu and Menu.Actions and Menu.Actions.StopForcedCrosse then pcall(Menu.Actions.StopForcedCrosse) end
+    if Menu and Menu.Actions and Menu.Actions.StopGravityTarget then pcall(Menu.Actions.StopGravityTarget) end
     _G._mirageMenuRunning=nil
     if L and type(L.SetNuiFocus)=='function' then pcall(L.SetNuiFocus,'mirage_live_menu',false) end
     if Menu and Menu.State and Menu.State.antiAimActive and Menu.Actions.SetAntiAim then
@@ -5287,7 +5288,8 @@ Menu.Data.Options.Vehicle = {
             {type="toggle",name="Carry Vehicle",id="carry_vehicle",state="carryActive"},
             {type="toggle",name="Auto Drive",id="auto_drive",state="autoDriveActive"},
             { type = "selector", name = "Builder", options = {"Ramp", "Tour", "Cross"}, valueIdx = 1, id = "builder_veh" },
-            { type = "toggle", name = "Graviter Vehicule", state = "gravitateVehicleActive" },
+            { type = "toggle_selector", name = "Gravity Vehicle", id = "gravity_vehicle",
+              state = "gravitateVehicleActive", options = {"Normal", "Target"}, valueIdx = 1 },
             { type = "separator", name = "Custom" },
             { type = "toggle", name = "Rainbow Car", state = "rainbowCarActive" },
             { type = "toggle", name = "Roadster", state = "roadsterActive" },
@@ -7330,6 +7332,10 @@ function Menu.Helpers.MigrateReorganizedBind(bind)
     if bind.label=="Copy Ped" and (bind.menu=="ONLINE" or bind.menu=="TROLL") then bind.label="Copy Outfit" end
     local name=bind.label
     local menu=bind.menu
+    if menu == "VEHICLE" and (name == "Graviter Vehicule" or name == "Vehicle Gravity") then
+        bind.label = "Gravity Vehicle"
+        name = bind.label
+    end
     if menu == "PLAYER" and name == "Anti TP" then name = "Anti Launch" end
     if menu == "PLAYER" and (name == "Revive" or name == "Anti Aim" or name == "Anti Launch") then
         for index, item in ipairs(Menu.Helpers.GetPlayerOptions()) do
@@ -18010,6 +18016,7 @@ end
 
 -- ToggleGravitateVehicle (from Freez1x)
 Menu.State.gravitateVehicleActive = false
+Menu.State.gravitateVehicleMode = 1
 Menu.State.tinyPlayerActive = false
 
 local function ToggleTinyPlayer(enable)
@@ -18154,8 +18161,9 @@ local function ToggleGravitateVehicle(enable, speed)
             local activeLocalControls = false
             local currentLocalSpeed = 0.0
 
-            while Menu.State.gravitateVehicleActive do
+            while Menu.State.gravitateVehicleActive and Menu.State.gravitateVehicleMode == 1 do
                 Wait(0)
+                if not Menu.State.gravitateVehicleActive or Menu.State.gravitateVehicleMode ~= 1 then break end
                 local ped = PlayerPedId()
                 if ped and ped ~= 0 then
                     local veh = GetVehiclePedIsIn(ped, false)
@@ -18233,6 +18241,187 @@ local function ToggleGravitateVehicle(enable, speed)
     end
 end
 Menu.Actions.ToggleGravitateVehicle = ToggleGravitateVehicle
+
+do
+    local source, target, airborne
+    local running = false
+    local nextControlRequest, controlWaitStarted, controlWarning = 0, nil, false
+
+    local function restoreGravity()
+        if airborne and DoesEntityExist(airborne) then SetEntityHasGravity(airborne, true) end
+        airborne = nil
+    end
+
+    local function clearSelection()
+        restoreGravity()
+        source, target = nil, nil
+        nextControlRequest, controlWaitStarted, controlWarning = 0, nil, false
+    end
+
+    local function nearestVehicle(origin, excluded)
+        local closest, distance = nil, 10.0
+        for _, vehicle in ipairs(GetGamePool("CVehicle")) do
+            if vehicle ~= excluded and DoesEntityExist(vehicle) then
+                local dist = #(GetEntityCoords(vehicle) - origin)
+                if dist < distance then closest, distance = vehicle, dist end
+            end
+        end
+        if not closest then return nil end
+        local low, high = GetModelDimensions(GetEntityModel(closest))
+        return {vehicle=closest, low=low, high=high}
+    end
+
+    local function drawSelection(selection, r, g, b)
+        local vehicle, low, high = selection.vehicle, selection.low, selection.high
+        local a = GetOffsetFromEntityInWorldCoords(vehicle, low.x, low.y, low.z)
+        local c = GetOffsetFromEntityInWorldCoords(vehicle, high.x, low.y, low.z)
+        local d = GetOffsetFromEntityInWorldCoords(vehicle, high.x, high.y, low.z)
+        local e = GetOffsetFromEntityInWorldCoords(vehicle, low.x, high.y, low.z)
+        DrawLine(a.x,a.y,a.z,c.x,c.y,c.z,r,g,b,255)
+        DrawLine(c.x,c.y,c.z,d.x,d.y,d.z,r,g,b,255)
+        DrawLine(d.x,d.y,d.z,e.x,e.y,e.z,r,g,b,255)
+        DrawLine(e.x,e.y,e.z,a.x,a.y,a.z,r,g,b,255)
+    end
+
+    local function updateFlight(vehicle, destination)
+        if NetworkGetEntityIsNetworked(vehicle) and not NetworkHasControlOfEntity(vehicle) then
+            restoreGravity()
+            local now = GetGameTimer()
+            controlWaitStarted = controlWaitStarted or now
+            if now >= nextControlRequest then
+                NetworkRequestControlOfEntity(vehicle)
+                nextControlRequest = now + 250
+            end
+            if not controlWarning and now - controlWaitStarted >= 1000 then
+                controlWarning = true
+                ShowDynastyNotification("[ GRAVITY TARGET ] Controle du vehicule non obtenu")
+            end
+            return
+        end
+        controlWaitStarted, controlWarning = nil, false
+
+        if airborne ~= vehicle then
+            restoreGravity()
+            SetEntityHasGravity(vehicle, false)
+            airborne = vehicle
+        end
+
+        local dx, dy, dz, pitch, roll, yaw
+        if destination then
+            local delta = GetEntityCoords(destination) - GetEntityCoords(vehicle)
+            local length = #delta
+            if length > 0.1 then
+                dx, dy, dz = delta.x / length, delta.y / length, delta.z / length
+                pitch = math.deg(math.atan(delta.z, math.sqrt(delta.x^2 + delta.y^2)))
+                roll, yaw = 0.0, -math.deg(math.atan(delta.x, delta.y))
+            else
+                dx, dy, dz = 0.0, 0.0, 0.0
+            end
+        else
+            local camera = GetGameplayCamRot(2)
+            pitch, roll, yaw = camera.x, camera.y, camera.z
+            local p, y = math.rad(pitch), math.rad(yaw)
+            dx, dy, dz = -math.sin(y) * math.cos(p), math.cos(y) * math.cos(p), math.sin(p)
+        end
+        if pitch then SetEntityRotation(vehicle, pitch, roll, yaw, 2, true) end
+        local v = GetEntityVelocity(vehicle)
+        local speed = 50.0
+        SetEntityVelocity(vehicle, (v.x + dx * speed) * 0.5, (v.y + dy * speed) * 0.5, (v.z + dz * speed) * 0.5)
+    end
+
+    local function updateTargetMode()
+        if Menu.State.menuOpen or IsBlockingUIActive() or _G.freecam_active then
+            restoreGravity()
+            return
+        end
+        local ped = PlayerPedId()
+        if ped == 0 or not DoesEntityExist(ped) or IsEntityDead(ped) then
+            clearSelection()
+            return
+        end
+
+        local origin = GetEntityCoords(ped)
+        if source and (not DoesEntityExist(source.vehicle) or #(GetEntityCoords(source.vehicle) - origin) > 30.0) then
+            restoreGravity()
+            source = nil
+        end
+        if target and not DoesEntityExist(target.vehicle) then target = nil end
+
+        DisableControlAction(0, 246, true)
+        if IsDisabledControlJustPressed(0, 246) then
+            restoreGravity()
+            if source then source = nil else source = nearestVehicle(origin, target and target.vehicle) end
+            nextControlRequest, controlWaitStarted, controlWarning = 0, nil, false
+        end
+        if IsControlJustPressed(0, 25) or IsDisabledControlJustPressed(0, 25) then
+            if target then target = nil else target = nearestVehicle(origin, source and source.vehicle) end
+        end
+
+        if source then drawSelection(source, 255, 255, 255) end
+        if target then drawSelection(target, 255, 65, 65) end
+        if source and target then
+            local a, b = GetEntityCoords(source.vehicle), GetEntityCoords(target.vehicle)
+            DrawLine(a.x,a.y,a.z+1.0,b.x,b.y,b.z+1.0,255,65,65,200)
+        end
+
+        if source and (IsControlPressed(0, 38) or IsDisabledControlPressed(0, 38)) then
+            updateFlight(source.vehicle, target and target.vehicle)
+        else
+            restoreGravity()
+            controlWaitStarted, controlWarning = nil, false
+        end
+    end
+
+    function Menu.Actions.StopGravityTarget()
+        if Menu.State.gravitateVehicleMode == 2 then Menu.State.gravitateVehicleActive = false end
+        clearSelection()
+    end
+
+    if type(AddEventHandler) == "function" then
+        AddEventHandler("onClientResourceStop", function(resource)
+            if resource == GetCurrentResourceName() then Menu.Actions.StopGravityTarget() end
+        end)
+    end
+
+    function Menu.Actions.ToggleVehicleGravityMode()
+        local state = Menu.State
+        if state.gravitateVehicleMode ~= 2 then
+            ToggleGravitateVehicle(not state.gravitateVehicleActive, 100)
+            return
+        end
+        state.gravitateVehicleActive = not state.gravitateVehicleActive
+        if not state.gravitateVehicleActive then
+            clearSelection()
+            ShowDynastyNotification("[ GRAVITY TARGET ] OFF")
+            return
+        end
+        ShowDynastyNotification("[ GRAVITY TARGET ] Y : vehicule / clic droit : cible / E : propulsion")
+        if running then return end
+        running = true
+        CreateThread(function()
+            while state.gravitateVehicleActive and state.gravitateVehicleMode == 2 do
+                local ok, err = pcall(updateTargetMode)
+                if not ok then
+                    state.gravitateVehicleActive = false
+                    print('[GRAVITY TARGET] ' .. tostring(err))
+                    ShowDynastyNotification('[ GRAVITY TARGET ] Erreur : voir F8')
+                    break
+                end
+                Wait(0)
+            end
+            clearSelection()
+            running = false
+        end)
+    end
+
+    function Menu.Actions.ChangeVehicleGravityMode(item, dir)
+        local state = Menu.State
+        local nextMode = ((state.gravitateVehicleMode - 1 + dir) % #item.options) + 1
+        if nextMode == state.gravitateVehicleMode then return end
+        if state.gravitateVehicleActive then Menu.Actions.ToggleVehicleGravityMode() end
+        state.gravitateVehicleMode, item.valueIdx = nextMode, nextMode
+    end
+end
 
 -- Rocket / Roadster : controleur unique, integration en secondes et effets locaux.
 do
@@ -23602,9 +23791,8 @@ function ExecuteMenuAction(menu, index, listOverride)
             end
         elseif vchoice == "Easy Handling" then
             Menu.Actions.ToggleEasyHandling()
-        elseif type(vitem) == "table" and vitem.state == "gravitateVehicleActive" then
-            Menu.State.gravitateVehicleActive = not Menu.State.gravitateVehicleActive
-            ToggleGravitateVehicle(Menu.State.gravitateVehicleActive, 100)
+        elseif type(vitem) == "table" and vitem.id == "gravity_vehicle" then
+            Menu.Actions.ToggleVehicleGravityMode()
         elseif vchoice == "Carry Vehicle" or (type(vitem)=="table" and vitem.id=="carry_vehicle") then
             Menu.Actions.ToggleCarryVehicle()
         elseif type(vitem)=="table" and vitem.id=="auto_drive" then
@@ -24111,7 +24299,10 @@ function Menu.Actions.HandleHorizontalNavigation(dir)
         else
             local vcat = Menu.Data.Options.Vehicle.Categories[Menu.State.vehicleTab]
             local item = vcat and vcat[Menu.State.selectedOption]
-            if item and item.type == "selector" then
+            if type(item) == "table" and item.id == "gravity_vehicle" then
+                Menu.Actions.ChangeVehicleGravityMode(item, dir)
+                PlaySoundFrontend(-1, "NAV_LEFT_RIGHT", "HUD_FRONTEND_DEFAULT_SOUNDSET", true)
+            elseif item and item.type == "selector" then
                 if item.id == "builder_veh" then
                     item.valueIdx = (item.valueIdx + dir - 1) % #item.options + 1
                     Menu.State.builderMode = item.valueIdx
