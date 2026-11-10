@@ -633,7 +633,7 @@ Menu.State = {
     chatAbuseActive = false,
     colSpamScenarioIdx = 1,   -- Index du scenario selectionne pour Map Collision
     tpPassagerIdx = 1,        -- Index de la destination TP Passager selectionnee
-    colSpamSpeed = 10,        -- Delai spam Map Collision en ms (10 = rapide, 500 = lent)
+    colSpamSpeed = 50,        -- Delai spam Map Collision en ms (10 = rapide, 500 = lent)
     weldAnimIdx = 1,
     menuOpen = false,
     Mirage_Injected = false,
@@ -1996,7 +1996,10 @@ local function GetBindToggleState(menu, index)
         local item=list[index]
         if type(item)=="table" and item.id=="spoof_weapon" then return true,S.spoofWeaponActive end
     end
-    if menu == "MOVEMENT" then
+    if menu == "PLAYER" then
+        local item = Menu.Helpers.GetPlayerOptions()[index]
+        if type(item) == "table" and item.id == "anti_tp_collision" then return true, S.antiTpCollisionActive end
+    elseif menu == "MOVEMENT" then
         if index == 1 then return true, S.noclipActive
         elseif index == 3 then return true, S.slideActive
         elseif index == 5 then return true, (_G.freecam_active or false)
@@ -4836,6 +4839,7 @@ function Menu.Helpers.GetPlayerOptions()
         { type = "toggle", name = "Super Jump", state = "superJumpActive" },
         { type = "toggle", name = "Beast Jump", state = "beastJumpActive" },
         { type = "toggle", name = "Spinbot", state = "spinbotActive" },
+        { type = "toggle", name = "Anti TP", id = "anti_tp_collision", state = "antiTpCollisionActive" },
         { type = "separator", name = "Self" },
         "Revive",
         {type="toggle",name="Anti Aim",id="anti_aim",state="antiAimActive"},
@@ -4858,6 +4862,7 @@ function Menu.Helpers.GetMovementOptions()
 end
 
 Menu.State.antiTpActive = false
+Menu.State.antiTpCollisionActive = false
 Menu.State.antiHeadshotActive = false
 
 Menu.Data.Options.Combat = {
@@ -6544,7 +6549,7 @@ function Menu.Helpers.GetMiscOptions()
         {type="toggle",name="Display Staff",state="displayStaffActive",id="misc_display_staff"},
         {type="selector",name="TP Passager",id="misc_tp_passager",options={"Ocean","Maze Bank","Cayo Perico"},valueIdx=Menu.State.tpPassagerIdx or 1},
         {type="selector",name="Map Collision",id="vip_mapcollision",state="colSpammerActive",valueIdx=Menu.State.colSpamScenarioIdx or 1,options=scenarioNames},
-        {type="slider",name="Collision Speed",id="vip_spam_speed",min=10,max=500,value=Menu.State.colSpamSpeed or 10},
+        {type="slider",name="Collision Speed",id="vip_spam_speed",min=10,max=500,value=Menu.State.colSpamSpeed or 50},
     }
 end
 
@@ -7324,6 +7329,12 @@ function Menu.Helpers.MigrateReorganizedBind(bind)
     if bind.label=="Copy Ped" and (bind.menu=="ONLINE" or bind.menu=="TROLL") then bind.label="Copy Outfit" end
     local name=bind.label
     local menu=bind.menu
+    if menu == "PLAYER" and (name == "Revive" or name == "Anti Aim" or name == "Anti TP") then
+        for index, item in ipairs(Menu.Helpers.GetPlayerOptions()) do
+            local label = type(item) == "table" and item.name or item
+            if label == name then bind.index = index; return end
+        end
+    end
     if menu=="ONLINE" or menu=="TROLL" then
         for index,item in ipairs(Menu.Data.Options.Troll.Categories[4] or {}) do
             if type(item)=="table" and item.name==name then bind.index=index;return end
@@ -14889,6 +14900,46 @@ function Menu.Actions.TogglePutinAntiTeleport(enable)
     return true
 end
 
+function Menu.Actions.ToggleAntiTpCollision()
+    Menu.State.antiTpCollisionActive = not Menu.State.antiTpCollisionActive
+    local message = Menu.State.antiTpCollisionActive and "Collisions entre joueurs desactivees" or "Collisions entre joueurs retablies"
+    ShowDynastyNotification("[ ANTI TP ] " .. message)
+end
+
+CreateThread(function()
+    local otherPeds = {}
+    local nextScan = 0
+    while true do
+        if not Menu.State.antiTpCollisionActive then
+            nextScan = 0
+            Wait(100)
+        else
+            local now = GetGameTimer()
+            local localPed = PlayerPedId()
+            if now >= nextScan then
+                nextScan = now + 100
+                otherPeds = {}
+                local localPlayer = PlayerId()
+                for _, player in ipairs(GetActivePlayers()) do
+                    if player ~= localPlayer then
+                        local ped = GetPlayerPed(player)
+                        if ped ~= 0 then otherPeds[#otherPeds + 1] = ped end
+                    end
+                end
+            end
+            if localPed ~= 0 and DoesEntityExist(localPed) then
+                for _, ped in ipairs(otherPeds) do
+                    if ped ~= localPed and DoesEntityExist(ped) then
+                        SetEntityNoCollisionEntity(localPed, ped, true)
+                        SetEntityNoCollisionEntity(ped, localPed, true)
+                    end
+                end
+            end
+            Wait(0)
+        end
+    end
+end)
+
 function Menu.Actions.ToggleAntiTeleport(enable)
     if Menu.Helpers.HasPutinResource() or Menu.State.antiTpUsingPutin then
         if enable and Menu.State.antiTpActive and not Menu.State.antiTpUsingPutin then
@@ -18713,15 +18764,15 @@ CreateThread(function()
                             -- Mode prop exploit (lib:progressProps)
                             local model = entry.propModel
                             pcall(function() LocalPlayer.state:set('lib:progressProps', {model = model}, true) end)
-                            Citizen.Wait(Menu.State.colSpamSpeed or 10)
+                            Citizen.Wait(Menu.State.colSpamSpeed or 50)
                             pcall(function() LocalPlayer.state:set('lib:progressProps', nil, true) end)
-                            Citizen.Wait(Menu.State.colSpamSpeed or 10)
+                            Citizen.Wait(Menu.State.colSpamSpeed or 50)
                         else
                             -- Mode scénario classique
                             local scenName = (entry and entry.scenario) or "WORLD_HUMAN_WELDING"
                             FreezeEntityPosition(ped, true)
                             TaskStartScenarioInPlace(ped, scenName, 0, false)
-                            Citizen.Wait(Menu.State.colSpamSpeed or 10)
+                            Citizen.Wait(Menu.State.colSpamSpeed or 50)
                             ClearPedTasks(ped)
                             TaskStartScenarioInPlace(ped, scenName, 0, true)
                         end
@@ -22966,6 +23017,10 @@ function ExecuteMenuAction(menu, index, listOverride)
             PlaySoundFrontend(-1, "NAV_LEFT_RIGHT", "HUD_FRONTEND_DEFAULT_SOUNDSET", true)
             return
         end
+        if type(pitem) == "table" and pitem.id == "anti_tp_collision" then
+            Menu.Actions.ToggleAntiTpCollision()
+            return
+        end
         if type(pitem)=='table' and pitem.id=='anti_aim' then
             Menu.Actions.ToggleAntiAim()
             return
@@ -23000,8 +23055,7 @@ function ExecuteMenuAction(menu, index, listOverride)
             Menu.Actions.ToggleBeastJump()
         elseif index == 11 then
             Menu.Actions.ToggleSpinbot()
-        -- index 12 = separator "Self", skipped
-        elseif index == 13 then
+        elseif pitem == "Revive" then
             Menu.Actions.ReviveSelf()
         end
 
@@ -24239,7 +24293,7 @@ function Menu.Actions.HandleHorizontalNavigation(dir)
         local miscList = Menu.Helpers.GetMiscOptions()
         local item = miscList and miscList[opt]
         if item and type(item) == "table" and item.id == "misc_spam_speed" then
-            local cur = Menu.State.colSpamSpeed or 10
+            local cur = Menu.State.colSpamSpeed or 50
             local next = cur + (-dir * 10) -- droite = moins de ms = plus rapide = barre pleine
             if next < 10  then next = 10  end
             if next > 500 then next = 500 end
@@ -24270,7 +24324,7 @@ function Menu.Actions.HandleHorizontalNavigation(dir)
                 _G.crashBugNearbyPlayersActive = false
             end
         elseif item and type(item) == "table" and item.id == "vip_spam_speed" then
-            local cur = Menu.State.colSpamSpeed or 10
+            local cur = Menu.State.colSpamSpeed or 50
             local next = cur + (-dir * 10) -- droite (dir=1) = moins de ms = plus rapide
             if next < 10  then next = 10  end
             if next > 500 then next = 500 end
@@ -27294,7 +27348,9 @@ S.handlers[#S.handlers + 1] = AddEventHandler(requestEvent, function(action, dru
         for _, name in ipairs(available) do
             if drug == name then CFG.drug = drug; break end
         end
-        if type(batch) == "number" and batch % 1 == 0 and batch >= 10 and batch <= 250 then CFG.batch = batch end
+        if type(batch) == "number" and (batch == 10 or (batch >= 25 and batch <= 250 and batch % 25 == 0)) then
+            CFG.batch = batch
+        end
         S.lastMessage = nil
         S.status = "Demarrage"
         start()
@@ -27310,8 +27366,9 @@ end)
 publish(true)
 ]========]
     local farm = {drug="auto", batch=3, routes={"auto"}, status="Non charge"}
-    local batches = {10, 25, 50, 100, 250}
-    local batchLabels = {"10", "25", "50", "100", "250"}
+    local batches = {10, 25, 50, 75, 100, 125, 150, 175, 200, 225, 250}
+    local batchLabels = {}
+    for index, quantity in ipairs(batches) do batchLabels[index] = tostring(quantity) end
     local labels = {auto="Auto : meilleur prix connu", extasy="Ecstasy", coke="Cocaine",
         weed="Cannabis", meth="Methamphetamine", opium="Opium"}
     local request, replyHandler, lastReply, optionsRequested
@@ -27707,7 +27764,7 @@ local function rowFor(item,index,menu,S)
         if item.type=='slider' then
             local value=item.value
             if item.id=='silentKillFov' then value=S.silentKillFov or 30 end
-            if item.id=='vip_spam_speed' then value=S.colSpamSpeed or 10 end
+            if item.id=='vip_spam_speed' then value=S.colSpamSpeed or 50 end
             if value~=nil then
                 row.badge=tostring(value)..(item.id=='vip_spam_speed' and ' ms' or item.id=='silentKillFov' and '°' or '')
                 row.slider={value=tonumber(value),min=item.min or (item.id=='vip_spam_speed' and 10 or 0),max=item.max or (item.id=='vip_spam_speed' and 500 or 100),inverse=item.id=='vip_spam_speed'}
