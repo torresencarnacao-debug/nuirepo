@@ -3306,25 +3306,31 @@ Citizen.CreateThread(function()
     end
 
     state.loadingStatus = "Preparing interface..."
-    state.loadingProgress = 25
+    state.loadingProgress = 0
     state.startupInterfaceAllowed = true
     if _G._mirageNuiEnabled and type(Lapsus) == "table" and type(Lapsus.CreateNui) == "function" then
         deadline = GetGameTimer() + 4000
-        while GetGameTimer() < deadline and (_G._mirageNuiUntil or 0) <= GetGameTimer() do
+        while GetGameTimer() < deadline and not state.startupLoadingSent do
             Wait(50)
         end
     end
+    local showProgress = state.startupLoadingSent == true
+    if showProgress then Wait(450) end
 
     state.loadingStatus = "Loading local settings..."
-    state.loadingProgress = 60
+    state.loadingProgress = 25
     _G.UniversalKeyBinds = _G.UniversalKeyBinds or {}
     if Menu.Helpers.LoadBinds then pcall(Menu.Helpers.LoadBinds) end
     Menu.Helpers.ApplyStartupAppearance()
+    if showProgress then Wait(450) end
 
     state.loadingStatus = "Preparing logo..."
-    state.loadingProgress = 85
+    state.loadingProgress = 65
     pcall(Lapsus_LoadLogo_compat, nil, true)
+    if showProgress then Wait(450) end
+    state.loadingStatus = "Ready!"
     state.loadingProgress = 100
+    if showProgress then Wait(350) end
     state.isLoading = false
 end)
 
@@ -27404,7 +27410,10 @@ Citizen.CreateThread(function()
                 status=tostring(S.loadingStatus or 'Chargement...'),theme=themeForNui()}
             local loadingKey=json.encode(loading)
             if loadingKey~=lastLoading or now%1000<120 then
-                if send('loading',loading) then lastLoading=loadingKey end
+                if send('loading',loading) then
+                    lastLoading=loadingKey
+                    if loading.active then S.startupLoadingSent = true end
+                end
             end
             local binding=Menu.Helpers.BuildNuiBinding()
             local bindingKey=json.encode(binding)
