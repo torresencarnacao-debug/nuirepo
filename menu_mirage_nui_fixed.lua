@@ -24124,7 +24124,7 @@ function Menu.Actions.HandleHorizontalNavigation(dir)
             vlist = Menu.Data.Options.Vehicle.Categories[Menu.State.vehicleTab]
         end
         local vitem = vlist and vlist[opt]
-        if vitem and vitem.type == "selector" then isSlider = true
+        if type(vitem) == "table" and (vitem.type == "selector" or vitem.type == "toggle_selector") then isSlider = true
         elseif type(vitem) == "string" and (vitem == "Easy Handling") then isSlider = true end
     elseif Menu.State.currentMenu == "VIP_PED" then
         local item=Menu.Helpers.GetPedOptions()[Menu.State.selectedOption]
