@@ -24379,6 +24379,11 @@ function ExecuteMenuAction(menu, index, listOverride)
                 ShowDynastyNotification("[ WEAPON ] No Recoil indisponible")
                 return
             end
+            if st=="noSpreadActive" or st=="noRecoilActive" then
+                print(("[MIRAGE WEAPON DIAG] %s spread=%s recoil=%s camera=%s weapon=%s")
+                    :format(st,type(SetWeaponAccuracySpread),type(SetWeaponRecoilShakeAmplitude),
+                        type(SetGameplayCamRelativePitch),tostring(GetSelectedPedWeapon(PlayerPedId()))))
+            end
             Menu.State[st] = not Menu.State[st]
             local on = Menu.State[st]
             ShowDynastyNotification("[ WEAPON ] " .. wdata.name .. ": " .. (on and "ON" or "OFF"))
@@ -28754,6 +28759,12 @@ function Menu.Helpers.BuildNuiSnapshot()
         local full = Menu.Helpers.GetFullListForMenu(menu) or {}
         for i, item in ipairs(full) do rows[i] = rowFor(item, i, menu, S) end
     end
+    if menu == "MOVEMENT" and not _G._mirageMovementSnapshotLogged then
+        _G._mirageMovementSnapshotLogged = true
+        print(("[MIRAGE NUI DIAG] Movement rows=%d; last=%s; spread=%s; recoil=%s")
+            :format(#rows, tostring(rows[#rows] and rows[#rows].label),
+                type(SetWeaponAccuracySpread), type(SetWeaponRecoilShakeAmplitude)))
+    end
     local tabs,active=tabsFor(menu,S)
     local banner=Menu.Banner and Menu.Banner.imageUrl or (base..'/assets/mirage-banner.png?v=21')
     if Menu.AvailableBanners and Menu.AvailableBanners[Menu.BannerIndex or 1] then
@@ -29047,7 +29058,13 @@ Citizen.CreateThread(function()
             if visible and (not wasVisible or context~=lastContext
                 or (valueRevision~=lastValueRevision and now-lastList>=40) or now-lastList>=200) then
                 local ok,snapshot=pcall(Menu.Helpers.BuildNuiSnapshot)
-                if ok then send('snapshot',snapshot) end
+                if ok then
+                    local accepted=send('snapshot',snapshot)
+                    if S.currentMenu=='MOVEMENT' and not _G._mirageMovementSendLogged then
+                        _G._mirageMovementSendLogged=true
+                        print('[MIRAGE NUI DIAG] snapshot sent='..tostring(accepted)..'; rows='..tostring(#snapshot.rows))
+                    end
+                end
                 lastContext=context;lastList=now;lastValueRevision=valueRevision
             end
             wasVisible=visible
