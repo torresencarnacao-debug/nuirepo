@@ -27864,6 +27864,7 @@ local CFG = {
     },
 }
 
+TriggerEvent("mirage:dynastyFarm:replace")
 local previous = _G.DynastyAutoFarm
 if previous and previous.unload then
     previous.unload()
@@ -27974,6 +27975,9 @@ function S.unload()
     S.loaded = false
     for _, handler in ipairs(S.handlers) do RemoveEventHandler(handler) end
 end
+S.handlers[#S.handlers + 1] = AddEventHandler("mirage:dynastyFarm:replace", function()
+    if S.loaded then S.unload() end
+end)
 
 local function validPoint(p)
     return p and type(p.x) == "number" and type(p.y) == "number"
@@ -28197,7 +28201,7 @@ end)
 
 local function start()
     if not S.loaded then return end
-    if S.active then stop("Farm arrete."); return end
+    if S.active then say("Farm deja actif; cycle en cours."); return end
     if S.busy then say("Arret en cours; attends une seconde."); return end
     S.active, S.busy = true, true
     Lapsus.CreateThread(function()
@@ -28225,7 +28229,8 @@ local function start()
                     say(("Vente terminee; %d brut restant pour le prochain cycle."):format(remainingRaw))
                 end
                 S.cycles = S.cycles + 1
-                say("Cycle termine : " .. S.cycles)
+                say("Cycle termine : " .. S.cycles .. "; prochain cycle en cours.")
+                S.status = "Cycle " .. (S.cycles + 1) .. " : preparation"
                 -- Le cycle suivant repart des la vente confirmee; le cooldown interne
                 -- reste applique aux actions serveur dans operate().
                 S.lastStart = now() - CFG.restartDelayMs
