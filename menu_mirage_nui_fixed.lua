@@ -23778,7 +23778,8 @@ function ExecuteMenuAction(menu, index, listOverride)
             ShowDynastyNotification("Layout: " .. layoutName)
         elseif index == 7 then
             Menu.State.freecamInfoVisible = not (Menu.State.freecamInfoVisible ~= false)
-            ShowDynastyNotification("Freecam Info: " .. (Menu.State.freecamInfoVisible and "ON (Visible)" or "OFF (Masque)"))        elseif index == 8 then
+            ShowDynastyNotification("Freecam Info: " .. (Menu.State.freecamInfoVisible and "ON (Visible)" or "OFF (Masque)"))
+        elseif index == 8 then
             Menu.Actions.TpWay()
         end
 
