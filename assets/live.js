@@ -276,9 +276,20 @@ const direct=new URLSearchParams(location.search).get('transport')==='direct';
 if(direct){
  setInterval(()=>{if(Date.now()-lastMessage>1800){if(frame){cancelAnimationFrame(frame);frame=0}pending=null;menu.style.display='none';hideWidgets();authPanel.hidden=true;loadingPanel.hidden=true;bindingPanel.hidden=true;givePanel.hidden=true;configPanel.hidden=true;notice.hidden=false;notice.textContent='Waiting for Lapsus.SendNuiMessage. Make sure the updated Lua script is running.'}},500);
 }else{
- const state={visible:true,menu:'MAIN',title:'Main',tabs:['Main','Exploit','Settings'],activeTab:1,rows:['Player','Online Menu','Combat','Weapon','Vehicle','Misc'].map((label,index)=>({label,index:index+1,submenu:true})),selected:1,start:1,maxDisplay:6,banner:'/assets/mirage-banner.png?v=19',scale:.83,position:1,sidebar:'left'};
+ const previews={
+  MAIN:['Player','Online Menu','Combat','Weapon','Vehicle','Misc'].map((label,index)=>({label,index:index+1,submenu:true})),
+  MOVEMENT:['Noclip','Noclip Pose','Slide','Freecam','Freecam Info','TP Way'].map((label,index)=>({label,index:index+1,submenu:label==='Freecam'})),
+  WEAPON:['No Reload','Infinite Ammo','No Spread','No Recoil'].map((label,index)=>({label,index:index+1,toggle:true,active:false}))
+ };
+ const state={visible:true,menu:'MAIN',title:'Main',tabs:['Main','Exploit','Settings'],activeTab:1,rows:previews.MAIN,selected:1,start:1,maxDisplay:6,banner:'/assets/mirage-banner.png?v=19',scale:.83,position:1,sidebar:'left'};
  consume({connected:true,state});notice.hidden=false;notice.textContent='Local preview. In Lapsus, updates arrive directly through SendNuiMessage.';
  widgets({enabled:true,bindsVisible:true,binds:[{key:'H',label:'Solo Session',toggle:true,active:true}],spectatorsVisible:true,spectators:[]});
- window.addEventListener('keydown',event=>{if(event.key==='ArrowDown'||event.key==='ArrowUp'){event.preventDefault();state.selected=(state.selected-1+(event.key==='ArrowDown'?1:-1)+state.rows.length)%state.rows.length+1;consume({connected:true,state})}});
+ window.addEventListener('keydown',event=>{
+  if(event.key==='1'||event.key==='2'||event.key==='3'){
+   const next=event.key==='1'?'MAIN':event.key==='2'?'MOVEMENT':'WEAPON';
+   state.menu=next;state.title=titles[next];state.rows=previews[next];state.selected=1;consume({connected:true,state});return;
+  }
+  if(event.key==='ArrowDown'||event.key==='ArrowUp'){event.preventDefault();state.selected=(state.selected-1+(event.key==='ArrowDown'?1:-1)+state.rows.length)%state.rows.length+1;consume({connected:true,state})}
+ });
 }
 })();
