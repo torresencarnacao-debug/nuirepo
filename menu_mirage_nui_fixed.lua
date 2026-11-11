@@ -1,7 +1,79 @@
 -- Renseigne le domaine public Railway, sans chemin.
 _G.MirageNuiBaseUrl = "https://nuirepo-production.up.railway.app"
+print('[MIRAGE SHIFT DIAG v1] fichier charge; deja actif='..tostring(_G._mirageMenuRunning==true))
+if not _G._mirageShiftDiagRunning then
+    _G._mirageShiftDiagRunning=true
+    CreateThread(function()
+        while true do
+            Wait(100)
+            local ped=PlayerPedId()
+            local vehicle=ped and GetVehiclePedIsIn(ped,false) or 0
+            local shift=IsControlPressed(0,21) or IsDisabledControlPressed(0,21)
+            if vehicle~=0 and shift and _G.AuthDone then
+                local state=Menu and Menu.State or {}
+                local bindCount=0
+                for key,bind in pairs(_G.UniversalKeyBinds or {}) do
+                    local vk=type(bind)=='table' and bind.vk or nil
+                    if key==21 or key==0x10 or key==0xA0 or key==0xA1
+                        or vk==0x10 or vk==0xA0 or vk==0xA1 then
+                        bindCount=bindCount+1
+                    end
+                end
+                print(('[MIRAGE SHIFT DIAG v1] gravity=%s mode=%s boost=%s rocket=%s roadster=%s easy=%s legacy=%s shiftBinds=%d')
+                    :format(tostring(state.gravitateVehicleActive),tostring(state.gravitateVehicleMode),
+                        tostring(state.shiftBoostActive),tostring(state.rocketCarActive),
+                        tostring(state.roadsterActive),tostring(state.easyHandlingActive),
+                        tostring(_G.PqLmYgZxWvTrHs),bindCount))
+                _G._mirageShiftDiagRunning=false
+                return
+            end
+        end
+    end)
+end
+-- A previous menu instance may still own Shift vehicle controls after a hot reload.
+local function stopLegacyShiftVehicleControl()
+    if _G._mirageShiftCleanupRunning then return end
+    local api=rawget(_G,'Lapsus') or Lapsus
+    if type(api)~='table' or type(api.InjectResource)~='function' then return end
+    _G._mirageShiftCleanupRunning=true
+    CreateThread(function()
+        local payload='PqLmYgZxWvTrHs = false'
+        local ok,resources=false,nil
+        if type(api.GetResources)=='function' then ok,resources=pcall(api.GetResources) end
+        if ok and type(resources)=='table' then
+            for _,name in ipairs(resources) do
+                if type(name)=='string' then
+                    pcall(api.InjectResource,name,payload)
+                    Wait(10)
+                end
+            end
+        else
+            pcall(api.InjectResource,nil,payload)
+        end
+        _G._mirageShiftCleanupRunning=false
+    end)
+end
 -- Prevent repeated execution in the same Lua environment from stacking threads.
 if _G._mirageMenuRunning then
+    if Menu and Menu.Actions then
+        if Menu.State and Menu.State.shiftBoostActive and Menu.Actions.ToggleShiftBoost then
+            pcall(Menu.Actions.ToggleShiftBoost,false)
+        end
+        if Menu.State and Menu.State.gravitateVehicleActive and Menu.Actions.ToggleGravitateVehicle then
+            pcall(Menu.Actions.ToggleGravitateVehicle,false)
+        end
+    end
+    stopLegacyShiftVehicleControl()
+    -- The already-running keybind listener reads this shared table.
+    if type(_G.UniversalKeyBinds)=='table' then
+        for key,bind in pairs(_G.UniversalKeyBinds) do
+            local vk=type(bind)=='table' and bind.vk or nil
+            if key==21 or key==0x10 or key==0xA0 or key==0xA1
+                or vk==0x10 or vk==0xA0 or vk==0xA1 then
+                _G.UniversalKeyBinds[key]=nil
+            end
+        end
+    end
     if Menu and Menu.State then Menu.State.menuOpen=true end
     return
 end
@@ -566,7 +638,12 @@ function Lapsus_Unload_compat()
     if Menu and Menu.State and Menu.State.staffAbuseActive and Menu.Actions.SetStaffAbuse then pcall(Menu.Actions.SetStaffAbuse,false) end
     if Menu and Menu.Actions and Menu.Actions.CleanupPunchAll then pcall(Menu.Actions.CleanupPunchAll) end
     if Menu and Menu.Actions and Menu.Actions.StopForcedCrosse then pcall(Menu.Actions.StopForcedCrosse) end
+    if Menu and Menu.State and Menu.State.putinDeathscreenSuppressed and Menu.Actions.SetPutinDeathscreenSuppressed then pcall(Menu.Actions.SetPutinDeathscreenSuppressed,false,Menu.State.putinResourceName or "Putin") end
+    if Menu and Menu.Actions and Menu.Actions.RestoreWeaponModifiers then pcall(Menu.Actions.RestoreWeaponModifiers) end
     if Menu and Menu.Actions and Menu.Actions.StopGravityTarget then pcall(Menu.Actions.StopGravityTarget) end
+    if Menu and Menu.Actions and Menu.Actions.ToggleGravitateVehicle then pcall(Menu.Actions.ToggleGravitateVehicle,false) end
+    if Menu and Menu.Actions and Menu.Actions.ToggleShiftBoost then pcall(Menu.Actions.ToggleShiftBoost,false) end
+    stopLegacyShiftVehicleControl()
     _G._mirageMenuRunning=nil
     if L and type(L.SetNuiFocus)=='function' then pcall(L.SetNuiFocus,'mirage_live_menu',false) end
     if Menu and Menu.State and Menu.State.antiAimActive and Menu.Actions.SetAntiAim then
@@ -689,6 +766,7 @@ Menu.State = {
     launchAllSoloActive = false,
     fuckAllCarsActive = false,
     fuckAllCarsMode = 1,
+    zeubTornadoActive = false,
     roadsterActive = false,
     rocketCarActive = false,
     protectActive = false,
@@ -1593,7 +1671,7 @@ Menu.Data.Options.Troll = {
 
             { type = "action", name = "Explode Engine", id = "explode_engine" },
             { type = "action", name = "Fullbox", id = "fullbox" },
-            { type = "selector", name = "Zeub", options = {"Black Hole", "Rain", "Fall"}, valueIdx = 1, id = "zeub_veh" },
+            { type = "selector", name = "Zeub", options = {"Black Hole", "Rain", "Fall", "Tornado"}, valueIdx = 1, id = "zeub_veh" },
             { type = "toggle", name = "Attach Car", state = "attachCarActive" },
             { type = "action", name = "Warp Vehicule", id = "warp_veh_cam" },
             { type = "selector", name = "Bug Véhicule", options = {"V1", "V2"}, valueIdx = 1, id = "bug_vehicule_online" }
@@ -2433,7 +2511,7 @@ function DrawFreecamHint()
             local mIdx = _G.FreecamLaunchModeIdx or 1
             text = "Launch [" .. (modes[mIdx] or "V1") .. "]"
         elseif text == "Attach" then
-            local modes = _G.FreecamAttachModes or { "Full Box", "Wall", "Single", "Rampe", "Tour" }
+            local modes = _G.FreecamAttachModes or { "Full Box", "Wall", "Single", "Rampe", "Tour", "Cage", "Chariot", "Roue", "Caisse", "Pile caisses", "Chauffage", "Pompe essence", "Sac transport", "Pile de bois", "Corp Servercln2", "Ret Ml Shelfrk", "Tshirt Stand 01", "Tshirt Stand 01B", "Tshirt Stand 02", "Tshirt Stand 04", "Ret Ml Liqshelfb", "Rock 3 D", "Corp Potplant1", "Corp Potplant2", "Pot Rack", "Lit Floorlamp 10", "Res Fh Sculptmod", "Tab Coffee 05", "Tv Stand 01", "Haybale 03", "Ret Ml Liqshelfd", "Tablesaw 01", "Ret Ml Liqshelfa", "Ret 247 Sweetcount", "T Coffe Table", "Egg Clock 01", "Rock 4 Cl 1", "Rub Table 02", "T Coffe Table 02", "Patio Lounger1", "Patio Lounger1b", "Floorlamp A", "Paints Bench01", "Lit Floorlamp 13", "Table 08", "Table 08 Side", "Feeder1", "Feeder1 Cr", "Paint Stepl01", "Res Mbdresser", "Acc Plant Palm 01", "Res Tre Tree", "Res Mdchest Moved", "Ret Ml Liqshelfc", "Muscle Bench 05", "Res Fh Benchshort", "Lit Floorlamp 06", "Ret 247Shelves01", "Ret 247Shelves03", "Ret 247Shelves02", "Ret 247Shelves04", "Ret 247Shelves05", "Phonebox 03", "Ret Ml Partframe1", "Res Lest Bigscreen", "Res M Console", "Res M H Console", "Res M Urn", "Str Shelfwallm 01", "Apa P Apdlc Treadmill S", "Ret Windowair", "Pot Plant 05C", "Paint Stepl01b", "Ret Wind2", "Ret Window", "T Shirt Row 01", "Pot Plant 05A", "Tv Flat 01 Screen", "Rock 2 A", "Beach Parasol 03", "Ret Csr Tyresale", "Fib Plant 02", "Trailer Door Closed", "Trailer Door Open", "Corp Plants", "Str Sideboards 01", "Res D Sofa", "Ret Ps Flowers 02", "Coffin 02", "Coffin 02B", "Speaker 01", "Haybale 02", "Bkr Prop Weed Table 01B", "Ret Ml Tableb", "Ret Ml Tablec", "Skid Box 02", "Ret Ml Tablea", "Train Ticket 02", "Train Ticket 02 Tu", "Rock 3 F", "Tshirt Shelf 2A", "Tshirt Shelf 2B", "Tshirt Shelf 2C", "Rock 4 A", "Dog Cage 01", "Res Tre Plant", "Pizza Oven 01", "Table 02", "Couch Lg 02", "T Shirt Row 05L", "Ret Ml Liqshelfe", "Coffin 01", "Beach Parasol 08", "T Shirt Row 05R", "Wall Light 12", "Res Tre Sofa", "Res Tre Sofa Mess C", "Res Tre Sofa S", "Tre Sofa Mess C S", "Stn Sofa Daybed 01", "Res Tre Sofa Mess B", "Tre Sofa Mess B S", "Skid Tent Cloth", "Big Clock 01", "Lit Floorlamp 01", "Bathtub 01", "Dandy B", "Rock 3 J", "Bench 01B", "Bench 01C", "Ret Ml Fridge", "Studio Light 01", "Bush Ivy 01 Top", "Bush Ivy 02 Top", "Couch Sm 06", "Barbell 100Kg", "Barbell 10Kg", "Barbell 20Kg", "Barbell 30Kg", "Barbell 40Kg", "Barbell 50Kg", "Barbell 60Kg", "Barbell 80Kg", "Weight Bench 02", "Id2 20 Clock", "Beach Lg Stretch", "Res Tre Wdunitscuz", "Res Tre Woodunit", "Heist Cutscene Doorb", "Airhockey 01", "Res Tre Wardrobe", "Pot Plant Bh1", "Barbell 02", "Ret Fh Displayc", "Couch 01", "Bench 04", "Sglasses Stand 01", "Bush Med 01", "Weight Squat", "Skid Tent 01B", "Couch Lg 05", "Res Mdbed", "Ret Gs Glass01", "Heist Cutscene Doora", "Premier Fence 01", "Windmill1", "Bball Arcade 01", "Apa V Ilev Fh Heistdoor2", "Tv Flat 01", "Apa V Ilev Ss Door2", "Apa V Ilev Ss Door7", "Apa V Ilev Ss Door8", "Door 01", "Corp Hicksdoor", "Apa Heist Apart2 Door", "Hei Bankdoor New", "Strip Door 01", "Chem Grill", "Pot Plant 05B", "Aerial 01C", "Beach Parasol 02", "Parasol 04E", "Parasol Bh 48", "Acc Artwalll 01", "Acc Artwalll 02", "Acc Artwalll 03", "Apa P H Acc Artwalll 01", "Apa P H Acc Artwalll 02", "Apa P H Acc Artwalll 03", "Apa P H Acc Artwalll 04", "Sf P H Acc Artwalll 04", "Sum P H Acc Artwalll 04", "Res Fridgemoda", "Carcreeper", "Arcade 02", "Stn Sofa2seat 02", "Sglasses Stand 1B", "Res D Closetdoorl", "Res D Closetdoorr", "Res Mddresser", "Res Mddresser Off", "Res M Sidetable", "Res Mbath", "Beach Parasol 04", "Beach Parasol 09", "Bench 02", "Worklight 04B L1", "Bench 01A", "Beach Parasol 01", "Chall Lamp 01", "Chall Lamp 01N", "Muscle Bench 04", "Rock 1 E", "Ret Fh Doorframe", "Res J Sofa", "Road Memorial 01", "Pot Plant 04A", "Punch Bag L", "Rock 2 F", "Ff Shelves 01", "Hot Tub Coverd", "Hottub2", "Serv Cupboard 01", "Surf Board 02", "Surf Board 03", "Surf Board Ldn 02", "Surf Board Ldn 03", "Skid Tent 01", "Fridge 01", "Pighouse2", "Serv Gt Glass1", "Umpire 01", "Res Fh Floorlamp", "Res Mbbed", "Res Mbbed Mess", "Patio Heater 01", "Kino Light 01", "A Base Bars 01", "Beach Bars 02", "Wall Light 09D", "Skid Tent 03", "P Spider 01D", "Ff Counter 02", "Ff Counter 03", "P Spider 01A", "Wall Light 09A", "Corp Cabshelves01", "Corp Offshelf", "Corp Offshelfclo" }
             local mIdx = _G.FreecamAttachModeIdx or 1
             text = "Attach [" .. (modes[mIdx] or "Full Box") .. "]"
         elseif text == "Spawn Props Model" then
@@ -3433,8 +3511,13 @@ function Menu.Actions.HandleBackNavigation()
         Menu.State.startIndex = 1
         return
     end
-    if Menu.State.currentMenu=="EXPLOIT_REDSIDE_WILD" or Menu.State.currentMenu=="EXPLOIT_REDSIDE_PETS" then
-        local selected = Menu.State.currentMenu=="EXPLOIT_REDSIDE_WILD" and 1 or 2
+    if Menu.State.currentMenu=="EXPLOIT_REDSIDE_DESTROYER_OBJECTS" then
+        Menu.State.currentMenu="EXPLOIT_REDSIDE_DESTROYER"
+        Menu.State.selectedOption,Menu.State.startIndex=2,1
+        return
+    end
+    if Menu.State.currentMenu=="EXPLOIT_REDSIDE_WILD" or Menu.State.currentMenu=="EXPLOIT_REDSIDE_PETS" or Menu.State.currentMenu=="EXPLOIT_REDSIDE_DESTROYER" then
+        local selected = Menu.State.currentMenu=="EXPLOIT_REDSIDE_WILD" and 1 or Menu.State.currentMenu=="EXPLOIT_REDSIDE_PETS" and 2 or 3
         Menu.State.currentMenu="EXPLOIT_REDSIDE"
         Menu.State.selectedOption,Menu.State.startIndex=selected,1
         return
@@ -4133,7 +4216,7 @@ CreateThread(function()
         Wait(0)
         if _G.isBindingNoclip and _G.bindingActionData and _G.bindingActionData.type == "DYNAMIC" then
             for vk = 0x01, 0xFE do
-                if Lapsus_GetAsyncKeyState_compat(vk) and vk ~= 0x12 and vk ~= 0x11 and vk ~= 0x7B then -- Skip Alt/Ctrl/F12
+                if Lapsus_GetAsyncKeyState_compat(vk) and vk ~= 0x12 and vk ~= 0x11 and vk ~= 0x10 and vk ~= 0xA0 and vk ~= 0xA1 and vk ~= 0x7B then -- Skip Alt/Ctrl/Shift/F12
                     if vk == 0x1B then -- ESC to cancel
                         _G.isBindingNoclip = false
                         Wait(200)
@@ -4861,9 +4944,54 @@ function Menu.Helpers.GetMovementOptions()
         { type = "toggle_slider_freecam", name = "Freecam" }, -- index 5 : toggle + speed slider
         "Layout", -- index 6
         "Freecam Info",   -- index 7
+        {type="action", name="TP Way", id="tp_way"}, -- index 8
     }
 end
 
+function Menu.Actions.TpWay()
+    local waypoint=GetFirstBlipInfoId(8)
+    if not waypoint or waypoint==0 or not DoesBlipExist(waypoint) then
+        ShowDynastyNotification("[ TP WAY ] Place un waypoint")
+        return false
+    end
+    local ped=PlayerPedId()
+    if not ped or ped==0 or not DoesEntityExist(ped) then return false end
+    local point=GetBlipInfoIdCoord(waypoint)
+    local vehicle=GetVehiclePedIsIn(ped,false)
+    local entity=(vehicle~=0 and GetPedInVehicleSeat(vehicle,-1)==ped) and vehicle or ped
+    local focused=false
+    local ok,reason=pcall(function()
+        if type(SetFocusPosAndVel)=='function' then
+            SetFocusPosAndVel(point.x,point.y,point.z,0.0,0.0,0.0)
+            focused=true
+        end
+        local ground=nil
+        local started=GetGameTimer()
+        repeat
+            RequestCollisionAtCoord(point.x,point.y,point.z)
+            for _,height in ipairs({1000.0,500.0,100.0}) do
+                local found,z=GetGroundZFor_3dCoord(point.x,point.y,height,false)
+                if found then ground=z;break end
+            end
+            if ground then break end
+            Wait(50)
+        until GetGameTimer()-started>=4000
+        if not ground then error("Sol introuvable au waypoint") end
+        local z=ground+(entity==vehicle and 1.5 or 1.0)
+        RequestCollisionAtCoord(point.x,point.y,z)
+        SetEntityCoordsNoOffset(entity,point.x,point.y,z,false,false,true)
+        SetEntityVelocity(entity,0.0,0.0,0.0)
+        if entity==vehicle then SetVehicleOnGroundProperly(vehicle) end
+        Wait(100)
+    end)
+    if focused and type(ClearFocus)=='function' then pcall(ClearFocus) end
+    if not ok then
+        ShowDynastyNotification("[ TP WAY ] "..tostring(reason))
+        return false
+    end
+    ShowDynastyNotification("[ TP WAY ] Arrive")
+    return true
+end
 Menu.State.antiTpActive = false
 Menu.State.antiLaunchActive = false
 Menu.State.antiHeadshotActive = false
@@ -6154,6 +6282,60 @@ function Bypass.CyberAnticheat(resource)
 end
 
 
+-- Keep Putin's death views hidden while its resource is detected.
+function Menu.Actions.SetPutinDeathscreenSuppressed(enable, resource)
+    local api=rawget(_G,'Lapsus') or Lapsus
+    if type(api)~='table' or type(api.InjectResource)~='function' then return false end
+    resource=resource or Menu.Helpers.GetPutinResource()
+    if type(resource)~='string' then return false end
+    local payload
+    if enable then
+        payload=[=[
+local key='codex:deathscreen-only'
+if type(DeathSystem)~='table' or type(DeathSystem.functions)~='table' then
+    print('[deathscreen] DeathSystem indisponible dans Putin.')
+    return
+end
+if _G._codexDeathscreenOnlyActive then return end
+local register=DeathSystem.functions.RegisterDeathScreenSuppressor
+if type(register)~='function' then
+    print('[deathscreen] Fonction de suppression introuvable.')
+    return
+end
+local ok,err=pcall(register,key,function() return true end)
+if not ok then print('[deathscreen] Echec : '..tostring(err));return end
+_G._codexDeathscreenOnlyActive=true
+if type(_M9J)=='function' then
+    _M9J()
+else
+    TriggerEvent('putin-ui:SendNUIMessage','deathscreen',{action='hide'})
+end
+if type(_HApPbGL)=='function' then
+    _HApPbGL()
+else
+    TriggerEvent('putin-ui:SendNUIMessage','gamedeath',{show=false})
+end
+TriggerEvent('putin-ui:SetNuiFocus',false)
+print('[deathscreen] Ecran de mort masque.')
+]=]
+    else
+        payload=[=[
+local key='codex:deathscreen-only'
+if type(DeathSystem)=='table' and type(DeathSystem.DeathScreenSuppressors)=='table' then
+    DeathSystem.DeathScreenSuppressors[key]=nil
+end
+_G._codexDeathscreenOnlyActive=nil
+print('[deathscreen] Blocage de l ecran de mort desactive.')
+]=]
+    end
+    local ok,result=pcall(api.InjectResource,resource,payload)
+    if not ok or result==false then
+        print('[deathscreen] Injection echouee : '..tostring(result))
+        return false
+    end
+    Menu.State.putinDeathscreenSuppressed=enable==true
+    return true
+end
 _G.AC_AlreadyChecked = false
 _G.AC_BypassesApplied = {}
 Menu.State.bypassPutinActive = false
@@ -6196,11 +6378,14 @@ function Menu.Actions.RunAnticheatChecker(isAutoRun)
         -- Les trois events Putin suivent exclusivement la presence de Putin.
         local hasPutin = resSet["putin"] == true
         if type(Lapsus_BlockServerEvent_compat) == "function" then
-            for _, eventName in ipairs({"fzxNT0j5LzDVhb5CIVOyI:1793675634s5RfOolCqxmyvIS6p4T", "yBwIOENnbw4n23zGtqI5E:17936261914jxHMESuN5wgwhPmTGn", "GMSnNwX3x1RpNwCx2ql17:1793649040rCGJsss0MNv5yo4KqFu"}) do
+            for _, eventName in ipairs({"QhDLqOx66tC4Zh6DO6hnP:1794347558ODb7ngzPWxXV9rMqzVl","9m91tjPRKPfDKMCaw3Uu6:17943283431Osx6avjrsFt9QBD6qg","1Er8vaHantDQ6n6bmbjSV:1794306639QMXgA3Y5aSxbixy6l9r"}) do
                 pcall(Lapsus_BlockServerEvent_compat, hasPutin, eventName)
             end
         end
         if not hasPutin then
+            if Menu.State.putinDeathscreenSuppressed then
+                Menu.Actions.SetPutinDeathscreenSuppressed(false, Menu.State.putinResourceName or "Putin")
+            end
             Menu.State.bypassPutinActive = false
             _G._miragePutinDetected = false
             Menu.State.putinResourceChecked = false
@@ -6240,6 +6425,7 @@ function Menu.Actions.RunAnticheatChecker(isAutoRun)
                 local hadGodmode = Menu.State.fullGodModeActive
                 if hadGodmode then Menu.Actions.ToggleFullGodmode(false) end
                 Menu.State.bypassPutinActive = true
+                Menu.Actions.SetPutinDeathscreenSuppressed(true, res)
                 if hadGodmode then Menu.Actions.ToggleFullGodmode(true) end
             end
 
@@ -6720,27 +6906,33 @@ local ok,err=pcall(function()
     if not DoesEntityExist(ped) or GetEntityModel(ped)~=expectedModel then
         error('Le ped a change avant l application de la variation.')
     end
+    local applied=0
+    local failures={}
     for _,change in ipairs(changes) do
-        local drawable=GetPedDrawableVariation(ped,change.component)
-        local count=GetNumberOfPedTextureVariations(ped,change.component,drawable)
-        if drawable~=change.drawable or change.texture<0 or change.texture>=count then
-            error('Variation indisponible sur le composant '..change.component..'.')
-        end
-        SetPedComponentVariation(ped,change.component,drawable,change.texture,GetPedPaletteVariation(ped,change.component))
-        if GetPedTextureVariation(ped,change.component)~=change.texture then
-            error('Texture non appliquee sur le composant '..change.component..'.')
-        end
+        local success,why=pcall(function()
+            local drawable=GetPedDrawableVariation(ped,change.component)
+            local count=GetNumberOfPedTextureVariations(ped,change.component,drawable)
+            if drawable~=change.drawable or change.texture<0 or change.texture>=count then
+                error('Variation indisponible sur le composant '..change.component..'.')
+            end
+            SetPedComponentVariation(ped,change.component,drawable,change.texture,GetPedPaletteVariation(ped,change.component))
+            if GetPedTextureVariation(ped,change.component)~=change.texture then
+                error('Texture non appliquee sur le composant '..change.component..'.')
+            end
+        end)
+        if success then applied=applied+1 else failures[#failures+1]=tostring(why) end
     end
+    if applied==0 then error('Aucune variation appliquee : '..table.concat(failures,' | ')) end
 end)
-if not ok then  end
+if not ok then print('[texture] Erreur : '..tostring(err)) end
 ]====]
         local sent,err=Lapsus_InjectResource_compat(target,code)
         if sent==false then error(err or "Execution refusee par Lapsus.") end
         return true
     end)
     if not ok then
-        
-        ShowDynastyNotification("Ped variation failed")
+        print("[texture] Erreur : "..tostring(result))
+        ShowDynastyNotification("[ PED ] Variation impossible : voir F8")
         return false
     end
     if result then PlaySoundFrontend(-1,"NAV_LEFT_RIGHT","HUD_FRONTEND_DEFAULT_SOUNDSET",true) end
@@ -6759,15 +6951,15 @@ function Menu.Actions.ChangePedTexture(item,dir)
     return Menu.Actions.SendPedTextureChanges(item.modelHash,{{component=item.component,drawable=drawable,texture=texture}})
 end
 
-function Menu.Helpers.GetChimpVariantOption()
-    local item={type="selector",name="Chimpanze Add-on",id="chimp_variant",model="ft-chimpanzee",options={"Equiper"},valueIdx=1}
+function Menu.Helpers.GetPedVariantOption(entry)
+    local item={type="selector",name=entry.name,id="ped_variant",model=entry.model,options={"Equiper"},valueIdx=1}
     local ped=PlayerPedId()
     if not DoesEntityExist(ped) or GetEntityModel(ped)~=GetHashKey(item.model) then return item end
     local maxCount,current=0,0
     for component=0,11 do
         local drawable=GetPedDrawableVariation(ped,component)
         local count=GetNumberOfPedTextureVariations(ped,component,drawable)
-        if count and count>maxCount then
+        if count and count>=maxCount and count>1 then
             maxCount=count;current=GetPedTextureVariation(ped,component)
         end
     end
@@ -6779,8 +6971,8 @@ function Menu.Helpers.GetChimpVariantOption()
     return item
 end
 
-function Menu.Actions.ChangeChimpTexture(dir)
-    local item=Menu.Helpers.GetChimpVariantOption()
+function Menu.Actions.ChangePedVariantTexture(entry,dir)
+    local item=Menu.Helpers.GetPedVariantOption(entry)
     if #item.options<2 then return false end
     local texture=((item.valueIdx-1)+(dir<0 and -1 or 1))%#item.options
     local ped=PlayerPedId()
@@ -6801,19 +6993,12 @@ function Menu.Helpers.GetPedOptions()
         options[#options+1]={type="action",name="Reset Ped",id="reset_ped"}
         return options
     end
-    return {
-        Menu.Helpers.GetChimpVariantOption(),
-        { name = "Bebe tigre",  model = "ft-ptiger"       },
-        { name = "Shiba",       model = "ft-shiba"        },
-        { name = "Lion",        model = "ft-lion"         },
-        { name = "Bshorthair",  model = "bshorthair"      },
-        { name = "Russel",      model = "russel"          },
-        { name = "Yorkshire",   model = "yorkshire"       },
-        { name = "Doberman",    model = "doberman"        },
-        { name = "Akita Inu",   model = "akita_inu"       },
-        { name = "Bengala",     model = "FT_Bengala"      },
-        {type="action",name="Reset Ped",id="reset_ped"},
-    }
+    local options={}
+    for _,entry in ipairs(Menu.Helpers.GetClientAddonPeds()) do
+        options[#options+1]=Menu.Helpers.GetPedVariantOption(entry)
+    end
+    options[#options+1]={type="action",name="Reset Ped",id="reset_ped"}
+    return options
 end
 
 local _dynaGiveOptions = nil
@@ -7252,6 +7437,7 @@ Menu.Data.Options.EXPLOIT_ELECTRON={{type="info",name="No options yet"}}
     Menu.Data.Options.EXPLOIT_REDSIDE = {
         {type='submenu', name='Animaux sauvages et fantastiques', id='redside_group', destination='EXPLOIT_REDSIDE_WILD'},
         {type='submenu', name='Chiens, chats et renards', id='redside_group', destination='EXPLOIT_REDSIDE_PETS'},
+        {type='submenu', name='Destroyer', id='redside_group', destination='EXPLOIT_REDSIDE_DESTROYER'},
     }
     local groups = {
         EXPLOIT_REDSIDE_WILD = {
@@ -7279,6 +7465,100 @@ Menu.Data.Options.EXPLOIT_ELECTRON={{type="info",name="No options yet"}}
         Menu.Data.Options[menu] = rows
     end
 end)()
+
+-- Destroyer: sous-categorie de Redside avec 3 options.
+Menu.Data.Options.EXPLOIT_REDSIDE_DESTROYER = {
+    {type='action',  name='200 Soldats',   id='destroyer_soldiers'},
+    {type='submenu', name='Spawn Objet',   id='destroyer_objects_menu'},
+    {type='action',  name='Clean All',     id='destroyer_clean_all'},
+}
+Menu.Data.Options.EXPLOIT_REDSIDE_DESTROYER_OBJECTS = {
+    {type='action', name='Barriere',      id='destroyer_spawn_obj', model='prop_barrier_work05a'},
+    {type='action', name='Bloc',          id='destroyer_spawn_obj', model='prop_mp_barrier_02b'},
+    {type='action', name='Rampe',         id='destroyer_spawn_obj', model='prop_mp_ramp_01'},
+    {type='action', name='Sapin',         id='destroyer_spawn_obj', model='prop_tree_xmas_01'},
+    {type='action', name='Toilettes',     id='destroyer_spawn_obj', model='prop_port_toilet_01'},
+    {type='action', name='Sac d\'argent', id='destroyer_spawn_obj', model='prop_cash_bag_01'},
+}
+
+-- Actions Destroyer
+function Menu.Actions.DestroyerSpawn200Soldiers()
+    local ped = PlayerPedId()
+    local pos = GetEntityCoords(ped)
+    ShowDynastyNotification('[ DESTROYER ] Spawn 200 soldats...')
+    _G._destroyerSoldiers = _G._destroyerSoldiers or {}
+    CreateThread(function()
+        local count = 0
+        local models = {'s_m_y_swat_01','s_m_y_cop_01','s_m_y_sheriff_01','s_m_y_marine_01'}
+        for i = 1, 200 do
+            local modelName = models[(i % #models) + 1]
+            local hash = GetHashKey(modelName)
+            if not HasModelLoaded(hash) then
+                RequestModel(hash)
+                local t = GetGameTimer()
+                while not HasModelLoaded(hash) and GetGameTimer() - t < 3000 do Wait(0) end
+            end
+            if HasModelLoaded(hash) then
+                local offsetX = math.random(-20, 20)
+                local offsetY = math.random(-20, 20)
+                local spawnPos = GetOffsetFromEntityInWorldCoords(ped, offsetX, offsetY, 0.0)
+                local npc = CreatePed(4, hash, spawnPos.x, spawnPos.y, spawnPos.z, 0.0, false, true)
+                if DoesEntityExist(npc) then
+                    SetEntityAsMissionEntity(npc, true, true)
+                    SetPedRelationshipGroupHash(npc, GetHashKey('PLAYER'))
+                    TaskCombatPed(npc, PlayerPedId(), 0, 16)
+                    _G._destroyerSoldiers[#_G._destroyerSoldiers + 1] = npc
+                    count = count + 1
+                end
+            end
+            if i % 10 == 0 then Wait(0) end
+        end
+        ShowDynastyNotification('[ DESTROYER ] ' .. count .. ' soldats spawnes')
+    end)
+end
+
+function Menu.Actions.DestroyerSpawnObject(modelName)
+    local ped = PlayerPedId()
+    local pos = GetEntityCoords(ped)
+    local fwd = GetEntityForwardVector(ped)
+    local spawnX = pos.x + fwd.x * 3.0
+    local spawnY = pos.y + fwd.y * 3.0
+    local spawnZ = pos.z
+    local hash = GetHashKey(modelName)
+    if not HasModelLoaded(hash) then
+        RequestModel(hash)
+        local t = GetGameTimer()
+        while not HasModelLoaded(hash) and GetGameTimer() - t < 5000 do Wait(0) end
+    end
+    if not HasModelLoaded(hash) then
+        ShowDynastyNotification('[ DESTROYER ] Modele indisponible : ' .. modelName)
+        return
+    end
+    _G._destroyerObjects = _G._destroyerObjects or {}
+    local obj = CreateObject(hash, spawnX, spawnY, spawnZ, true, true, false)
+    if DoesEntityExist(obj) then
+        SetEntityAsMissionEntity(obj, true, true)
+        PlaceObjectOnGroundProperly(obj)
+        _G._destroyerObjects[#_G._destroyerObjects + 1] = obj
+        ShowDynastyNotification('[ DESTROYER ] Objet spawne : ' .. modelName)
+    else
+        ShowDynastyNotification('[ DESTROYER ] Echec spawn : ' .. modelName)
+    end
+    SetModelAsNoLongerNeeded(hash)
+end
+
+function Menu.Actions.DestroyerCleanAll()
+    local count = 0
+    for _, npc in ipairs(_G._destroyerSoldiers or {}) do
+        if DoesEntityExist(npc) then DeleteEntity(npc); count = count + 1 end
+    end
+    _G._destroyerSoldiers = {}
+    for _, obj in ipairs(_G._destroyerObjects or {}) do
+        if DoesEntityExist(obj) then DeleteEntity(obj); count = count + 1 end
+    end
+    _G._destroyerObjects = {}
+    ShowDynastyNotification('[ DESTROYER ] Clean : ' .. count .. ' entites supprimees')
+end
 
 function Menu.Actions.ApplyRedsidePed(modelName)
     if Menu.State.redsideModelLoading then
@@ -7321,7 +7601,7 @@ end
 
 
 function Menu.Helpers.IsExploitCategory(menu)
-    return menu=="EXPLOIT_PUTIN" or menu=="EXPLOIT_AUTO_FARM" or menu=="EXPLOIT_SEED" or menu=="EXPLOIT_WAVESHIELD" or menu=="EXPLOIT_ELECTRON" or menu=="EXPLOIT_REDSIDE" or menu=="EXPLOIT_REDSIDE_WILD" or menu=="EXPLOIT_REDSIDE_PETS"
+    return menu=="EXPLOIT_PUTIN" or menu=="EXPLOIT_AUTO_FARM" or menu=="EXPLOIT_SEED" or menu=="EXPLOIT_WAVESHIELD" or menu=="EXPLOIT_ELECTRON" or menu=="EXPLOIT_REDSIDE" or menu=="EXPLOIT_REDSIDE_WILD" or menu=="EXPLOIT_REDSIDE_PETS" or menu=="EXPLOIT_REDSIDE_DESTROYER" or menu=="EXPLOIT_REDSIDE_DESTROYER_OBJECTS"
 end
 function Menu.Helpers.GetExploitCategoryOptions(menu)
     if menu == "EXPLOIT_AUTO_FARM" then return Menu.Helpers.GetAutoFarmOptions() end
@@ -10202,33 +10482,42 @@ function Menu.Helpers.HasPutinResource()
 end
 
 function Menu.Actions.SetPutinGodmode(enable)
-    if not Lapsus or type(Lapsus.GetResources)~="function" or type(Lapsus_InjectResource_compat)~="function" then
-        ;return false
+    local api = rawget(_G, 'Lapsus') or Lapsus
+    if type(api) ~= 'table' or type(api.InjectResource) ~= 'function' then return false end
+    local resource = 'Putin'
+    if type(api.GetResources) == 'function' then
+        local ok, resources = pcall(api.GetResources)
+        if ok and type(resources) == 'table' then
+            local found = false
+            for _, name in ipairs(resources) do
+                if type(name) == 'string' and name:lower() == 'putin' then
+                    resource, found = name, true
+                    break
+                end
+            end
+            if not found then return false end
+        end
     end
-    local ok,resources=pcall(Lapsus.GetResources)
-    if not ok or type(resources)~="table" then ;return false end
-    local target
-    for _,name in ipairs(resources) do
-        if type(name)=="string" and name:lower()=="putin" then target=name;break end
-    end
-    if not target then ;return false end
-    local code
+    local payload
     if enable then
-        code=[====[
+        payload = [====[
 do
     local key='_putinMenuGodmodeController'
     local previous=_G[key]
-    if previous and type(previous.dispose)=='function' then previous.dispose() end
-    if type(_FRL)~='table' or type(_FRL.PlayerData)~='table' then
-        ;return
+    if previous and type(previous.dispose)=='function' then
+        previous.dispose()
     end
-    local framework=_FRL
+    local framework=_xmBZLa or _KhJa9W0 or _FRL
+    if type(framework)~='table' or type(framework.PlayerData)~='table' then
+        print('[ GOD MODE ] Contexte joueur Putin absent.');return
+    end
     local data=framework.PlayerData
     local ped=PlayerPedId()
-    if not data.PassJoin or not data.cache or data.cache.playerped~=ped or not DoesEntityExist(ped) then
-        ;return
+    if not data.PassJoin or not data.cache or not DoesEntityExist(ped) then
+        print('[ GOD MODE ] Joueur Putin non initialise.');return
     end
-    if IsEntityDead(ped) then ;return end
+    if IsEntityDead(ped) then print('[ GOD MODE ] Personnage mort : utilise Revive avant le God Mode.');return end
+    local lastPed, lastModel = ped, GetEntityModel(ped)
     local marker='mirage_godmode:'..tostring(GetGameTimer())
     local beforeServer,beforeType=data.invincibleServer,data.invincibleType
     local ownsMarker=not (beforeServer==true or beforeServer==1)
@@ -10265,13 +10554,25 @@ do
                     SetEntityCanBeDamaged(current,not protected)
                 end
             end)
-            if not ok then  end
+            if not ok then print('[ GOD MODE ] Erreur arret : '..tostring(err)) end
         end
         if stopHandler and type(RemoveEventHandler)=='function' then RemoveEventHandler(stopHandler) end
         if _G[key]==controller then _G[key]=nil end
     end
     local function maintain()
         if framework.PlayerData~=data or not data.PassJoin then controller.dispose();return end
+        local current = PlayerPedId()
+        if not DoesEntityExist(current) or IsEntityDead(current) then return end
+
+        local model = GetEntityModel(current)
+        local changedPed = current ~= lastPed or model ~= lastModel
+        lastPed, lastModel = current, model
+        if changedPed and ownsMarker and not truth(data.invincibleServer) then
+            TriggerEvent('gamemode:setInvincible',true,marker)
+        elseif changedPed and ownsMarker and data.invincibleType ~= marker then
+            -- Preserve an active protection supplied by Putin for the new ped.
+            ownsMarker = false
+        end
         if not ownsMarker and not truth(data.invincibleServer) then
             -- An inherited protection has ended; acquire our own instead of silently losing God Mode.
             beforeServer,beforeType=data.invincibleServer,data.invincibleType
@@ -10279,18 +10580,22 @@ do
             TriggerEvent('gamemode:setInvincible',true,marker)
         end
         if ownsMarker and (data.invincibleType~=marker or not truth(data.invincibleServer)) then
-            
+            print('[ GOD MODE ] Protection remplacee par Putin : maintien arrete.')
             controller.dispose();return
         end
-        local current=PlayerPedId()
-        if not DoesEntityExist(current) or not data.cache or data.cache.playerped~=current or IsEntityDead(current) then return end
-        -- Putin's native loop reads these flags; avoid a competing per-frame native loop.
-        -- Its health synchronizer clamps increases to PlayerData.health, so update it first.
+        -- Model changes reset native protection; Putin's ped cache may update later.
+        -- Mirror the accepted Putin protection onto the actual current player entity.
+        SetEntityInvincible(current,true)
+        SetEntityCanBeDamaged(current,false)
+        -- Keep Putin's health synchronizer consistent before restoring health.
         local maximum=GetEntityMaxHealth(current)
         if maximum>0 and GetEntityHealth(current)<maximum then
             data.health=maximum
             SetEntityHealth(current,maximum)
         end
+    end
+    function controller.refresh()
+        if running then maintain() end
     end
     local ok,err=pcall(function()
         if ownsMarker then
@@ -10302,7 +10607,7 @@ do
         maintain()
     end)
     if not ok then
-        
+        print('[ GOD MODE ] Erreur activation : '..tostring(err))
         controller.dispose();return
     end
     _G[key]=controller
@@ -10315,7 +10620,7 @@ do
             if not running then return end
             local ok,err=pcall(maintain)
             if not ok then
-                
+                print('[ GOD MODE ] Erreur maintien : '..tostring(err))
                 controller.dispose();return
             end
         end
@@ -10323,15 +10628,11 @@ do
 end
 ]====]
     else
-        code=[[local c=_G._putinMenuGodmodeController;if c and type(c.dispose)=='function' then c.dispose() end]]
+        payload = [[local c=_G._putinMenuGodmodeController;if c and type(c.dispose)=='function' then c.dispose() end]]
     end
-    local accepted,sent,reason=pcall(Lapsus_InjectResource_compat,target,code)
-    if not accepted or sent==false then
-        ;return false
-    end
-    return true
+    local ok, result = pcall(api.InjectResource, resource, payload)
+    return ok and result ~= false
 end
-
 function Menu.Actions.ToggleFullGodmodeFallback(enable)
     Menu.State.fullGodModeActive = enable
 
@@ -10535,82 +10836,53 @@ function Menu.Actions.ReviveSelfFallback()
     ShowDynastyNotification("[ REVIVE ] Resurrection en cours...")
 end
 function Menu.Actions.ReviveWithPutin()
-    if type(Lapsus) ~= "table"
-        or type(Lapsus.GetResources) ~= "function"
-        or type(Lapsus_InjectResource_compat) ~= "function" then
+    local api = rawget(_G, 'Lapsus') or Lapsus
+    if type(api) ~= 'table' or type(api.InjectResource) ~= 'function' then
         ShowDynastyNotification("Revive API unavailable")
         return
     end
 
-    -- Bloquer l'evenement de mort en permanence (rappele a chaque revive pour s'assurer qu'il reste bloque)
-    if type(Lapsus_BlockServerEvent_compat) == "function" then
-        Lapsus_BlockServerEvent_compat(true, 'HxvLH8nN6DN1HahYzx5EC:1793624258nVwF7CK9BVQjJzWYPCs')
+    local resource = 'Putin'
+    if type(api.GetResources) == 'function' then
+        local ok, resources = pcall(api.GetResources)
+        if ok and type(resources) == 'table' then
+            local found = false
+            for _, name in ipairs(resources) do
+                if type(name) == 'string' and name:lower() == 'putin' then
+                    resource, found = name, true
+                    break
+                end
+            end
+            if not found then
+                ShowDynastyNotification("Revive resource unavailable")
+                return
+            end
+        end
     end
 
-    -- Trouver la ressource cible ("putin")
-    local target = nil
-    for _, name in ipairs(Lapsus.GetResources()) do
-        if name:lower() == "putin" then target = name break end
-    end
-    if not target then
-        ShowDynastyNotification("Revive resource unavailable")
-        return
-    end
+    local payload = [=[
+if type(DeathSystem) ~= 'table'
+    or type(DeathSystem.functions) ~= 'table'
+    or type(DeathSystem.functions.RevivePlayer) ~= 'function' then
+    print('[revive] Fonction RevivePlayer introuvable dans Putin.')
+    return
+end
 
-    local code = [====[
-    local ok,err=pcall(function()
-        if type(_FRL) ~= "table" or type(_FRL.PlayerData) ~= "table"
-            or type(NetworkResurrectLocalPlayer) ~= "function" then
-            
-            return
-        end
-        if not _FRL.PlayerData.PassJoin then
-            
-            return
-        end
+if type(_xmBZLa) == 'table' and type(_xmBZLa.PlayerData) == 'table' then
+    _xmBZLa.PlayerData.IsDead = false
+    _xmBZLa.PlayerData.DeathData = nil
+end
 
-        local ped = PlayerPedId()
-        if not DoesEntityExist(ped) then
-            
-            return
-        end
-        local dead = IsEntityDead(ped)
-        local data = _FRL.PlayerData
+local ok, err = pcall(DeathSystem.functions.RevivePlayer, { revive = true, type = 'classic' })
+if not ok then
+    print('[revive] Echec : ' .. tostring(err))
+else
+    print('[revive] Revive local lance.')
+end
+]=]
 
-        if data.IsDead == false and not (dead == true or dead == 1) then
-            
-            return
-        end
-
-        local coords  = GetEntityCoords(ped)
-        local heading = GetEntityHeading(ped)
-
-        -- Mise a jour locale ponctuelle, sans emettre d'evenement.
-        data.IsDead    = false
-        data.DeathData = {}
-        data.health    = 200
-
-        NetworkResurrectLocalPlayer(coords.x, coords.y, coords.z, heading, false, false, false)
-
-        ped = PlayerPedId()
-        if IsEntityDead(ped) then error("La resurrection n a pas ete appliquee.") end
-        SetEntityHealth(ped, 200)
-        _FRL.PlayerData.health = GetEntityHealth(ped)
-        if _FRL.PlayerData.cache then
-            _FRL.PlayerData.cache.playerped = ped
-        end
-        ClearPedBloodDamage(ped)
-        ClearEntityLastDamageEntity(ped)
-        StopScreenEffect("DeathFailOut")
-        if type(ClearPedTasksImmediately)=="function" then ClearPedTasksImmediately(ped) end
-        
-    end)
-    if not ok then  end
-    ]====]
-
-    local ok,sent,err=pcall(Lapsus_InjectResource_compat,target,code)
-    if not ok or sent==false then
-        
+    local ok, result = pcall(api.InjectResource, resource, payload)
+    if not ok or result == false then
         ShowDynastyNotification("Revive failed")
         return
     end
@@ -10821,13 +11093,250 @@ _G.FreecamBugVehicleModes = { "V1", "V2" }
 _G.FreecamBugVehicleModeIdx = 1
 _G.FreecamNPCHijackModes = { "V1", "V2" }
 _G.FreecamNPCHijackModeIdx = 1
-_G.FreecamAttachModes = { "Full Box", "Wall", "Single", "Rampe", "Tour", "Cage", "Chariot", "Roue", "Caisse", "Pile caisses", "Chauffage", "Pompe essence" }
+_G.FreecamAttachModes = { "Full Box", "Wall", "Single", "Rampe", "Tour", "Cage", "Chariot", "Roue", "Caisse", "Pile caisses", "Chauffage", "Pompe essence", "Sac transport", "Pile de bois", "Corp Servercln2", "Ret Ml Shelfrk", "Tshirt Stand 01", "Tshirt Stand 01B", "Tshirt Stand 02", "Tshirt Stand 04", "Ret Ml Liqshelfb", "Rock 3 D", "Corp Potplant1", "Corp Potplant2", "Pot Rack", "Lit Floorlamp 10", "Res Fh Sculptmod", "Tab Coffee 05", "Tv Stand 01", "Haybale 03", "Ret Ml Liqshelfd", "Tablesaw 01", "Ret Ml Liqshelfa", "Ret 247 Sweetcount", "T Coffe Table", "Egg Clock 01", "Rock 4 Cl 1", "Rub Table 02", "T Coffe Table 02", "Patio Lounger1", "Patio Lounger1b", "Floorlamp A", "Paints Bench01", "Lit Floorlamp 13", "Table 08", "Table 08 Side", "Feeder1", "Feeder1 Cr", "Paint Stepl01", "Res Mbdresser", "Acc Plant Palm 01", "Res Tre Tree", "Res Mdchest Moved", "Ret Ml Liqshelfc", "Muscle Bench 05", "Res Fh Benchshort", "Lit Floorlamp 06", "Ret 247Shelves01", "Ret 247Shelves03", "Ret 247Shelves02", "Ret 247Shelves04", "Ret 247Shelves05", "Phonebox 03", "Ret Ml Partframe1", "Res Lest Bigscreen", "Res M Console", "Res M H Console", "Res M Urn", "Str Shelfwallm 01", "Apa P Apdlc Treadmill S", "Ret Windowair", "Pot Plant 05C", "Paint Stepl01b", "Ret Wind2", "Ret Window", "T Shirt Row 01", "Pot Plant 05A", "Tv Flat 01 Screen", "Rock 2 A", "Beach Parasol 03", "Ret Csr Tyresale", "Fib Plant 02", "Trailer Door Closed", "Trailer Door Open", "Corp Plants", "Str Sideboards 01", "Res D Sofa", "Ret Ps Flowers 02", "Coffin 02", "Coffin 02B", "Speaker 01", "Haybale 02", "Bkr Prop Weed Table 01B", "Ret Ml Tableb", "Ret Ml Tablec", "Skid Box 02", "Ret Ml Tablea", "Train Ticket 02", "Train Ticket 02 Tu", "Rock 3 F", "Tshirt Shelf 2A", "Tshirt Shelf 2B", "Tshirt Shelf 2C", "Rock 4 A", "Dog Cage 01", "Res Tre Plant", "Pizza Oven 01", "Table 02", "Couch Lg 02", "T Shirt Row 05L", "Ret Ml Liqshelfe", "Coffin 01", "Beach Parasol 08", "T Shirt Row 05R", "Wall Light 12", "Res Tre Sofa", "Res Tre Sofa Mess C", "Res Tre Sofa S", "Tre Sofa Mess C S", "Stn Sofa Daybed 01", "Res Tre Sofa Mess B", "Tre Sofa Mess B S", "Skid Tent Cloth", "Big Clock 01", "Lit Floorlamp 01", "Bathtub 01", "Dandy B", "Rock 3 J", "Bench 01B", "Bench 01C", "Ret Ml Fridge", "Studio Light 01", "Bush Ivy 01 Top", "Bush Ivy 02 Top", "Couch Sm 06", "Barbell 100Kg", "Barbell 10Kg", "Barbell 20Kg", "Barbell 30Kg", "Barbell 40Kg", "Barbell 50Kg", "Barbell 60Kg", "Barbell 80Kg", "Weight Bench 02", "Id2 20 Clock", "Beach Lg Stretch", "Res Tre Wdunitscuz", "Res Tre Woodunit", "Heist Cutscene Doorb", "Airhockey 01", "Res Tre Wardrobe", "Pot Plant Bh1", "Barbell 02", "Ret Fh Displayc", "Couch 01", "Bench 04", "Sglasses Stand 01", "Bush Med 01", "Weight Squat", "Skid Tent 01B", "Couch Lg 05", "Res Mdbed", "Ret Gs Glass01", "Heist Cutscene Doora", "Premier Fence 01", "Windmill1", "Bball Arcade 01", "Apa V Ilev Fh Heistdoor2", "Tv Flat 01", "Apa V Ilev Ss Door2", "Apa V Ilev Ss Door7", "Apa V Ilev Ss Door8", "Door 01", "Corp Hicksdoor", "Apa Heist Apart2 Door", "Hei Bankdoor New", "Strip Door 01", "Chem Grill", "Pot Plant 05B", "Aerial 01C", "Beach Parasol 02", "Parasol 04E", "Parasol Bh 48", "Acc Artwalll 01", "Acc Artwalll 02", "Acc Artwalll 03", "Apa P H Acc Artwalll 01", "Apa P H Acc Artwalll 02", "Apa P H Acc Artwalll 03", "Apa P H Acc Artwalll 04", "Sf P H Acc Artwalll 04", "Sum P H Acc Artwalll 04", "Res Fridgemoda", "Carcreeper", "Arcade 02", "Stn Sofa2seat 02", "Sglasses Stand 1B", "Res D Closetdoorl", "Res D Closetdoorr", "Res Mddresser", "Res Mddresser Off", "Res M Sidetable", "Res Mbath", "Beach Parasol 04", "Beach Parasol 09", "Bench 02", "Worklight 04B L1", "Bench 01A", "Beach Parasol 01", "Chall Lamp 01", "Chall Lamp 01N", "Muscle Bench 04", "Rock 1 E", "Ret Fh Doorframe", "Res J Sofa", "Road Memorial 01", "Pot Plant 04A", "Punch Bag L", "Rock 2 F", "Ff Shelves 01", "Hot Tub Coverd", "Hottub2", "Serv Cupboard 01", "Surf Board 02", "Surf Board 03", "Surf Board Ldn 02", "Surf Board Ldn 03", "Skid Tent 01", "Fridge 01", "Pighouse2", "Serv Gt Glass1", "Umpire 01", "Res Fh Floorlamp", "Res Mbbed", "Res Mbbed Mess", "Patio Heater 01", "Kino Light 01", "A Base Bars 01", "Beach Bars 02", "Wall Light 09D", "Skid Tent 03", "P Spider 01D", "Ff Counter 02", "Ff Counter 03", "P Spider 01A", "Wall Light 09A", "Corp Cabshelves01", "Corp Offshelf", "Corp Offshelfclo" }
 _G.FreecamAttachPropModels = {
     ["Roue"]="prop_rub_wheel_02",
     ["Caisse"]="prop_box_wood06a",
     ["Pile caisses"]="prop_boxpile_08a",
     ["Chauffage"]="prop_elec_heater_01",
-    ["Pompe essence"]="prop_gas_pump_1c"
+    ["Pompe essence"]="prop_gas_pump_1c",
+    ["Sac transport"]="prop_carrier_bag_01",
+    ["Pile de bois"]="prop_logpile_06b",
+    ["Corp Servercln2"]="v_corp_servercln2",
+    ["Ret Ml Shelfrk"]="v_ret_ml_shelfrk",
+    ["Tshirt Stand 01"]="prop_tshirt_stand_01",
+    ["Tshirt Stand 01B"]="prop_tshirt_stand_01b",
+    ["Tshirt Stand 02"]="prop_tshirt_stand_02",
+    ["Tshirt Stand 04"]="prop_tshirt_stand_04",
+    ["Ret Ml Liqshelfb"]="v_ret_ml_liqshelfb",
+    ["Rock 3 D"]="prop_rock_3_d",
+    ["Corp Potplant1"]="v_corp_potplant1",
+    ["Corp Potplant2"]="v_corp_potplant2",
+    ["Pot Rack"]="prop_pot_rack",
+    ["Lit Floorlamp 10"]="apa_mp_h_lit_floorlamp_10",
+    ["Res Fh Sculptmod"]="v_res_fh_sculptmod",
+    ["Tab Coffee 05"]="apa_mp_h_tab_coffee_05",
+    ["Tv Stand 01"]="prop_tv_stand_01",
+    ["Haybale 03"]="prop_haybale_03",
+    ["Ret Ml Liqshelfd"]="v_ret_ml_liqshelfd",
+    ["Tablesaw 01"]="prop_tablesaw_01",
+    ["Ret Ml Liqshelfa"]="v_ret_ml_liqshelfa",
+    ["Ret 247 Sweetcount"]="v_ret_247_sweetcount",
+    ["T Coffe Table"]="prop_t_coffe_table",
+    ["Egg Clock 01"]="prop_egg_clock_01",
+    ["Rock 4 Cl 1"]="prop_rock_4_cl_1",
+    ["Rub Table 02"]="prop_rub_table_02",
+    ["T Coffe Table 02"]="prop_t_coffe_table_02",
+    ["Patio Lounger1"]="prop_patio_lounger1",
+    ["Patio Lounger1b"]="prop_patio_lounger1b",
+    ["Floorlamp A"]="apa_mp_h_floorlamp_a",
+    ["Paints Bench01"]="prop_paints_bench01",
+    ["Lit Floorlamp 13"]="apa_mp_h_lit_floorlamp_13",
+    ["Table 08"]="prop_table_08",
+    ["Table 08 Side"]="prop_table_08_side",
+    ["Feeder1"]="prop_feeder1",
+    ["Feeder1 Cr"]="prop_feeder1_cr",
+    ["Paint Stepl01"]="prop_paint_stepl01",
+    ["Res Mbdresser"]="v_res_mbdresser",
+    ["Acc Plant Palm 01"]="apa_mp_h_acc_plant_palm_01",
+    ["Res Tre Tree"]="v_res_tre_tree",
+    ["Res Mdchest Moved"]="v_res_mdchest_moved",
+    ["Ret Ml Liqshelfc"]="v_ret_ml_liqshelfc",
+    ["Muscle Bench 05"]="prop_muscle_bench_05",
+    ["Res Fh Benchshort"]="v_res_fh_benchshort",
+    ["Lit Floorlamp 06"]="apa_mp_h_lit_floorlamp_06",
+    ["Ret 247Shelves01"]="v_ret_247shelves01",
+    ["Ret 247Shelves03"]="v_ret_247shelves03",
+    ["Ret 247Shelves02"]="v_ret_247shelves02",
+    ["Ret 247Shelves04"]="v_ret_247shelves04",
+    ["Ret 247Shelves05"]="v_ret_247shelves05",
+    ["Phonebox 03"]="prop_phonebox_03",
+    ["Ret Ml Partframe1"]="v_ret_ml_partframe1",
+    ["Res Lest Bigscreen"]="v_res_lest_bigscreen",
+    ["Res M Console"]="v_res_m_console",
+    ["Res M H Console"]="v_res_m_h_console",
+    ["Res M Urn"]="v_res_m_urn",
+    ["Str Shelfwallm 01"]="apa_mp_h_str_shelfwallm_01",
+    ["Apa P Apdlc Treadmill S"]="apa_p_apdlc_treadmill_s",
+    ["Ret Windowair"]="v_ret_windowair",
+    ["Pot Plant 05C"]="prop_pot_plant_05c",
+    ["Paint Stepl01b"]="prop_paint_stepl01b",
+    ["Ret Wind2"]="v_ret_wind2",
+    ["Ret Window"]="v_ret_window",
+    ["T Shirt Row 01"]="prop_t_shirt_row_01",
+    ["Pot Plant 05A"]="prop_pot_plant_05a",
+    ["Tv Flat 01 Screen"]="prop_tv_flat_01_screen",
+    ["Rock 2 A"]="prop_rock_2_a",
+    ["Beach Parasol 03"]="prop_beach_parasol_03",
+    ["Ret Csr Tyresale"]="v_ret_csr_tyresale",
+    ["Fib Plant 02"]="prop_fib_plant_02",
+    ["Trailer Door Closed"]="prop_trailer_door_closed",
+    ["Trailer Door Open"]="prop_trailer_door_open",
+    ["Corp Plants"]="v_corp_plants",
+    ["Str Sideboards 01"]="apa_mp_h_str_sideboards_01",
+    ["Res D Sofa"]="v_res_d_sofa",
+    ["Ret Ps Flowers 02"]="v_ret_ps_flowers_02",
+    ["Coffin 02"]="prop_coffin_02",
+    ["Coffin 02B"]="prop_coffin_02b",
+    ["Speaker 01"]="prop_speaker_01",
+    ["Haybale 02"]="prop_haybale_02",
+    ["Bkr Prop Weed Table 01B"]="bkr_prop_weed_table_01b",
+    ["Ret Ml Tableb"]="v_ret_ml_tableb",
+    ["Ret Ml Tablec"]="v_ret_ml_tablec",
+    ["Skid Box 02"]="prop_skid_box_02",
+    ["Ret Ml Tablea"]="v_ret_ml_tablea",
+    ["Train Ticket 02"]="prop_train_ticket_02",
+    ["Train Ticket 02 Tu"]="prop_train_ticket_02_tu",
+    ["Rock 3 F"]="prop_rock_3_f",
+    ["Tshirt Shelf 2A"]="prop_tshirt_shelf_2a",
+    ["Tshirt Shelf 2B"]="prop_tshirt_shelf_2b",
+    ["Tshirt Shelf 2C"]="prop_tshirt_shelf_2c",
+    ["Rock 4 A"]="prop_rock_4_a",
+    ["Dog Cage 01"]="prop_dog_cage_01",
+    ["Res Tre Plant"]="v_res_tre_plant",
+    ["Pizza Oven 01"]="prop_pizza_oven_01",
+    ["Table 02"]="prop_table_02",
+    ["Couch Lg 02"]="prop_couch_lg_02",
+    ["T Shirt Row 05L"]="prop_t_shirt_row_05l",
+    ["Ret Ml Liqshelfe"]="v_ret_ml_liqshelfe",
+    ["Coffin 01"]="prop_coffin_01",
+    ["Beach Parasol 08"]="prop_beach_parasol_08",
+    ["T Shirt Row 05R"]="prop_t_shirt_row_05r",
+    ["Wall Light 12"]="prop_wall_light_12",
+    ["Res Tre Sofa"]="v_res_tre_sofa",
+    ["Res Tre Sofa Mess C"]="v_res_tre_sofa_mess_c",
+    ["Res Tre Sofa S"]="v_res_tre_sofa_s",
+    ["Tre Sofa Mess C S"]="v_tre_sofa_mess_c_s",
+    ["Stn Sofa Daybed 01"]="apa_mp_h_stn_sofa_daybed_01",
+    ["Res Tre Sofa Mess B"]="v_res_tre_sofa_mess_b",
+    ["Tre Sofa Mess B S"]="v_tre_sofa_mess_b_s",
+    ["Skid Tent Cloth"]="prop_skid_tent_cloth",
+    ["Big Clock 01"]="prop_big_clock_01",
+    ["Lit Floorlamp 01"]="apa_mp_h_lit_floorlamp_01",
+    ["Bathtub 01"]="apa_mp_h_bathtub_01",
+    ["Dandy B"]="prop_dandy_b",
+    ["Rock 3 J"]="prop_rock_3_j",
+    ["Bench 01B"]="prop_bench_01b",
+    ["Bench 01C"]="prop_bench_01c",
+    ["Ret Ml Fridge"]="v_ret_ml_fridge",
+    ["Studio Light 01"]="prop_studio_light_01",
+    ["Bush Ivy 01 Top"]="prop_bush_ivy_01_top",
+    ["Bush Ivy 02 Top"]="prop_bush_ivy_02_top",
+    ["Couch Sm 06"]="prop_couch_sm_06",
+    ["Barbell 100Kg"]="prop_barbell_100kg",
+    ["Barbell 10Kg"]="prop_barbell_10kg",
+    ["Barbell 20Kg"]="prop_barbell_20kg",
+    ["Barbell 30Kg"]="prop_barbell_30kg",
+    ["Barbell 40Kg"]="prop_barbell_40kg",
+    ["Barbell 50Kg"]="prop_barbell_50kg",
+    ["Barbell 60Kg"]="prop_barbell_60kg",
+    ["Barbell 80Kg"]="prop_barbell_80kg",
+    ["Weight Bench 02"]="prop_weight_bench_02",
+    ["Id2 20 Clock"]="prop_id2_20_clock",
+    ["Beach Lg Stretch"]="prop_beach_lg_stretch",
+    ["Res Tre Wdunitscuz"]="v_res_tre_wdunitscuz",
+    ["Res Tre Woodunit"]="v_res_tre_woodunit",
+    ["Heist Cutscene Doorb"]="apa_prop_heist_cutscene_doorb",
+    ["Airhockey 01"]="prop_airhockey_01",
+    ["Res Tre Wardrobe"]="v_res_tre_wardrobe",
+    ["Pot Plant Bh1"]="prop_pot_plant_bh1",
+    ["Barbell 02"]="prop_barbell_02",
+    ["Ret Fh Displayc"]="v_ret_fh_displayc",
+    ["Couch 01"]="prop_couch_01",
+    ["Bench 04"]="prop_bench_04",
+    ["Sglasses Stand 01"]="prop_sglasses_stand_01",
+    ["Bush Med 01"]="prop_bush_med_01",
+    ["Weight Squat"]="prop_weight_squat",
+    ["Skid Tent 01B"]="prop_skid_tent_01b",
+    ["Couch Lg 05"]="prop_couch_lg_05",
+    ["Res Mdbed"]="v_res_mdbed",
+    ["Ret Gs Glass01"]="v_ret_gs_glass01",
+    ["Heist Cutscene Doora"]="apa_prop_heist_cutscene_doora",
+    ["Premier Fence 01"]="prop_premier_fence_01",
+    ["Windmill1"]="prop_windmill1",
+    ["Bball Arcade 01"]="prop_bball_arcade_01",
+    ["Apa V Ilev Fh Heistdoor2"]="apa_v_ilev_fh_heistdoor2",
+    ["Tv Flat 01"]="prop_tv_flat_01",
+    ["Apa V Ilev Ss Door2"]="apa_v_ilev_ss_door2",
+    ["Apa V Ilev Ss Door7"]="apa_v_ilev_ss_door7",
+    ["Apa V Ilev Ss Door8"]="apa_v_ilev_ss_door8",
+    ["Door 01"]="prop_door_01",
+    ["Corp Hicksdoor"]="v_corp_hicksdoor",
+    ["Apa Heist Apart2 Door"]="apa_heist_apart2_door",
+    ["Hei Bankdoor New"]="apa_prop_hei_bankdoor_new",
+    ["Strip Door 01"]="prop_strip_door_01",
+    ["Chem Grill"]="prop_chem_grill",
+    ["Pot Plant 05B"]="prop_pot_plant_05b",
+    ["Aerial 01C"]="prop_aerial_01c",
+    ["Beach Parasol 02"]="prop_beach_parasol_02",
+    ["Parasol 04E"]="prop_parasol_04e",
+    ["Parasol Bh 48"]="prop_parasol_bh_48",
+    ["Acc Artwalll 01"]="apa_mp_h_acc_artwalll_01",
+    ["Acc Artwalll 02"]="apa_mp_h_acc_artwalll_02",
+    ["Acc Artwalll 03"]="apa_mp_h_acc_artwalll_03",
+    ["Apa P H Acc Artwalll 01"]="apa_p_h_acc_artwalll_01",
+    ["Apa P H Acc Artwalll 02"]="apa_p_h_acc_artwalll_02",
+    ["Apa P H Acc Artwalll 03"]="apa_p_h_acc_artwalll_03",
+    ["Apa P H Acc Artwalll 04"]="apa_p_h_acc_artwalll_04",
+    ["Sf P H Acc Artwalll 04"]="sf_p_h_acc_artwalll_04",
+    ["Sum P H Acc Artwalll 04"]="sum_p_h_acc_artwalll_04",
+    ["Res Fridgemoda"]="v_res_fridgemoda",
+    ["Carcreeper"]="prop_carcreeper",
+    ["Arcade 02"]="prop_arcade_02",
+    ["Stn Sofa2seat 02"]="apa_mp_h_stn_sofa2seat_02",
+    ["Sglasses Stand 1B"]="prop_sglasses_stand_1b",
+    ["Res D Closetdoorl"]="v_res_d_closetdoorl",
+    ["Res D Closetdoorr"]="v_res_d_closetdoorr",
+    ["Res Mddresser"]="v_res_mddresser",
+    ["Res Mddresser Off"]="v_res_mddresser_off",
+    ["Res M Sidetable"]="v_res_m_sidetable",
+    ["Res Mbath"]="v_res_mbath",
+    ["Beach Parasol 04"]="prop_beach_parasol_04",
+    ["Beach Parasol 09"]="prop_beach_parasol_09",
+    ["Bench 02"]="prop_bench_02",
+    ["Worklight 04B L1"]="prop_worklight_04b_l1",
+    ["Bench 01A"]="prop_bench_01a",
+    ["Beach Parasol 01"]="prop_beach_parasol_01",
+    ["Chall Lamp 01"]="prop_chall_lamp_01",
+    ["Chall Lamp 01N"]="prop_chall_lamp_01n",
+    ["Muscle Bench 04"]="prop_muscle_bench_04",
+    ["Rock 1 E"]="prop_rock_1_e",
+    ["Ret Fh Doorframe"]="v_ret_fh_doorframe",
+    ["Res J Sofa"]="v_res_j_sofa",
+    ["Road Memorial 01"]="prop_road_memorial_01",
+    ["Pot Plant 04A"]="prop_pot_plant_04a",
+    ["Punch Bag L"]="prop_punch_bag_l",
+    ["Rock 2 F"]="prop_rock_2_f",
+    ["Ff Shelves 01"]="prop_ff_shelves_01",
+    ["Hot Tub Coverd"]="prop_hot_tub_coverd",
+    ["Hottub2"]="prop_hottub2",
+    ["Serv Cupboard 01"]="v_serv_cupboard_01",
+    ["Surf Board 02"]="prop_surf_board_02",
+    ["Surf Board 03"]="prop_surf_board_03",
+    ["Surf Board Ldn 02"]="prop_surf_board_ldn_02",
+    ["Surf Board Ldn 03"]="prop_surf_board_ldn_03",
+    ["Skid Tent 01"]="prop_skid_tent_01",
+    ["Fridge 01"]="prop_fridge_01",
+    ["Pighouse2"]="prop_pighouse2",
+    ["Serv Gt Glass1"]="v_serv_gt_glass1",
+    ["Umpire 01"]="prop_umpire_01",
+    ["Res Fh Floorlamp"]="v_res_fh_floorlamp",
+    ["Res Mbbed"]="v_res_mbbed",
+    ["Res Mbbed Mess"]="v_res_mbbed_mess",
+    ["Patio Heater 01"]="prop_patio_heater_01",
+    ["Kino Light 01"]="prop_kino_light_01",
+    ["A Base Bars 01"]="prop_a_base_bars_01",
+    ["Beach Bars 02"]="prop_beach_bars_02",
+    ["Wall Light 09D"]="prop_wall_light_09d",
+    ["Skid Tent 03"]="prop_skid_tent_03",
+    ["P Spider 01D"]="prop_p_spider_01d",
+    ["Ff Counter 02"]="prop_ff_counter_02",
+    ["Ff Counter 03"]="prop_ff_counter_03",
+    ["P Spider 01A"]="prop_p_spider_01a",
+    ["Wall Light 09A"]="prop_wall_light_09a",
+    ["Corp Cabshelves01"]="v_corp_cabshelves01",
+    ["Corp Offshelf"]="v_corp_offshelf",
+    ["Corp Offshelfclo"]="v_corp_offshelfclo"
 }
 _G.FreecamAttachModeIdx = 1
 _G.TpPassengerDestIdx = 1  -- default: first destination
@@ -11901,7 +12410,7 @@ function HandleInputMenu()
                     end
                 end
 
-                local modes = _G.FreecamAttachModes or { "Full Box", "Wall", "Single", "Rampe", "Tour", "Cage", "Chariot", "Roue", "Caisse", "Pile caisses", "Chauffage", "Pompe essence" }
+                local modes = _G.FreecamAttachModes or { "Full Box", "Wall", "Single", "Rampe", "Tour", "Cage", "Chariot", "Roue", "Caisse", "Pile caisses", "Chauffage", "Pompe essence", "Sac transport", "Pile de bois", "Corp Servercln2", "Ret Ml Shelfrk", "Tshirt Stand 01", "Tshirt Stand 01B", "Tshirt Stand 02", "Tshirt Stand 04", "Ret Ml Liqshelfb", "Rock 3 D", "Corp Potplant1", "Corp Potplant2", "Pot Rack", "Lit Floorlamp 10", "Res Fh Sculptmod", "Tab Coffee 05", "Tv Stand 01", "Haybale 03", "Ret Ml Liqshelfd", "Tablesaw 01", "Ret Ml Liqshelfa", "Ret 247 Sweetcount", "T Coffe Table", "Egg Clock 01", "Rock 4 Cl 1", "Rub Table 02", "T Coffe Table 02", "Patio Lounger1", "Patio Lounger1b", "Floorlamp A", "Paints Bench01", "Lit Floorlamp 13", "Table 08", "Table 08 Side", "Feeder1", "Feeder1 Cr", "Paint Stepl01", "Res Mbdresser", "Acc Plant Palm 01", "Res Tre Tree", "Res Mdchest Moved", "Ret Ml Liqshelfc", "Muscle Bench 05", "Res Fh Benchshort", "Lit Floorlamp 06", "Ret 247Shelves01", "Ret 247Shelves03", "Ret 247Shelves02", "Ret 247Shelves04", "Ret 247Shelves05", "Phonebox 03", "Ret Ml Partframe1", "Res Lest Bigscreen", "Res M Console", "Res M H Console", "Res M Urn", "Str Shelfwallm 01", "Apa P Apdlc Treadmill S", "Ret Windowair", "Pot Plant 05C", "Paint Stepl01b", "Ret Wind2", "Ret Window", "T Shirt Row 01", "Pot Plant 05A", "Tv Flat 01 Screen", "Rock 2 A", "Beach Parasol 03", "Ret Csr Tyresale", "Fib Plant 02", "Trailer Door Closed", "Trailer Door Open", "Corp Plants", "Str Sideboards 01", "Res D Sofa", "Ret Ps Flowers 02", "Coffin 02", "Coffin 02B", "Speaker 01", "Haybale 02", "Bkr Prop Weed Table 01B", "Ret Ml Tableb", "Ret Ml Tablec", "Skid Box 02", "Ret Ml Tablea", "Train Ticket 02", "Train Ticket 02 Tu", "Rock 3 F", "Tshirt Shelf 2A", "Tshirt Shelf 2B", "Tshirt Shelf 2C", "Rock 4 A", "Dog Cage 01", "Res Tre Plant", "Pizza Oven 01", "Table 02", "Couch Lg 02", "T Shirt Row 05L", "Ret Ml Liqshelfe", "Coffin 01", "Beach Parasol 08", "T Shirt Row 05R", "Wall Light 12", "Res Tre Sofa", "Res Tre Sofa Mess C", "Res Tre Sofa S", "Tre Sofa Mess C S", "Stn Sofa Daybed 01", "Res Tre Sofa Mess B", "Tre Sofa Mess B S", "Skid Tent Cloth", "Big Clock 01", "Lit Floorlamp 01", "Bathtub 01", "Dandy B", "Rock 3 J", "Bench 01B", "Bench 01C", "Ret Ml Fridge", "Studio Light 01", "Bush Ivy 01 Top", "Bush Ivy 02 Top", "Couch Sm 06", "Barbell 100Kg", "Barbell 10Kg", "Barbell 20Kg", "Barbell 30Kg", "Barbell 40Kg", "Barbell 50Kg", "Barbell 60Kg", "Barbell 80Kg", "Weight Bench 02", "Id2 20 Clock", "Beach Lg Stretch", "Res Tre Wdunitscuz", "Res Tre Woodunit", "Heist Cutscene Doorb", "Airhockey 01", "Res Tre Wardrobe", "Pot Plant Bh1", "Barbell 02", "Ret Fh Displayc", "Couch 01", "Bench 04", "Sglasses Stand 01", "Bush Med 01", "Weight Squat", "Skid Tent 01B", "Couch Lg 05", "Res Mdbed", "Ret Gs Glass01", "Heist Cutscene Doora", "Premier Fence 01", "Windmill1", "Bball Arcade 01", "Apa V Ilev Fh Heistdoor2", "Tv Flat 01", "Apa V Ilev Ss Door2", "Apa V Ilev Ss Door7", "Apa V Ilev Ss Door8", "Door 01", "Corp Hicksdoor", "Apa Heist Apart2 Door", "Hei Bankdoor New", "Strip Door 01", "Chem Grill", "Pot Plant 05B", "Aerial 01C", "Beach Parasol 02", "Parasol 04E", "Parasol Bh 48", "Acc Artwalll 01", "Acc Artwalll 02", "Acc Artwalll 03", "Apa P H Acc Artwalll 01", "Apa P H Acc Artwalll 02", "Apa P H Acc Artwalll 03", "Apa P H Acc Artwalll 04", "Sf P H Acc Artwalll 04", "Sum P H Acc Artwalll 04", "Res Fridgemoda", "Carcreeper", "Arcade 02", "Stn Sofa2seat 02", "Sglasses Stand 1B", "Res D Closetdoorl", "Res D Closetdoorr", "Res Mddresser", "Res Mddresser Off", "Res M Sidetable", "Res Mbath", "Beach Parasol 04", "Beach Parasol 09", "Bench 02", "Worklight 04B L1", "Bench 01A", "Beach Parasol 01", "Chall Lamp 01", "Chall Lamp 01N", "Muscle Bench 04", "Rock 1 E", "Ret Fh Doorframe", "Res J Sofa", "Road Memorial 01", "Pot Plant 04A", "Punch Bag L", "Rock 2 F", "Ff Shelves 01", "Hot Tub Coverd", "Hottub2", "Serv Cupboard 01", "Surf Board 02", "Surf Board 03", "Surf Board Ldn 02", "Surf Board Ldn 03", "Skid Tent 01", "Fridge 01", "Pighouse2", "Serv Gt Glass1", "Umpire 01", "Res Fh Floorlamp", "Res Mbbed", "Res Mbbed Mess", "Patio Heater 01", "Kino Light 01", "A Base Bars 01", "Beach Bars 02", "Wall Light 09D", "Skid Tent 03", "P Spider 01D", "Ff Counter 02", "Ff Counter 03", "P Spider 01A", "Wall Light 09A", "Corp Cabshelves01", "Corp Offshelf", "Corp Offshelfclo" }
                 local currentMode = modes[_G.FreecamAttachModeIdx or 1] or "Full Box"
 
                 CreateThread(function()
@@ -12963,7 +13472,7 @@ function HandleInputMenu()
     if freecam_active and FreecamOptions[FreecamSelectedOption] == "Attach" then
         local leftArrow  = IsDisabledControlJustPressed(0, 174)
         local rightArrow = IsDisabledControlJustPressed(0, 175)
-        local modes = _G.FreecamAttachModes or { "Full Box", "Wall", "Single", "Rampe", "Tour", "Cage", "Chariot", "Roue", "Caisse", "Pile caisses", "Chauffage", "Pompe essence" }
+        local modes = _G.FreecamAttachModes or { "Full Box", "Wall", "Single", "Rampe", "Tour", "Cage", "Chariot", "Roue", "Caisse", "Pile caisses", "Chauffage", "Pompe essence", "Sac transport", "Pile de bois", "Corp Servercln2", "Ret Ml Shelfrk", "Tshirt Stand 01", "Tshirt Stand 01B", "Tshirt Stand 02", "Tshirt Stand 04", "Ret Ml Liqshelfb", "Rock 3 D", "Corp Potplant1", "Corp Potplant2", "Pot Rack", "Lit Floorlamp 10", "Res Fh Sculptmod", "Tab Coffee 05", "Tv Stand 01", "Haybale 03", "Ret Ml Liqshelfd", "Tablesaw 01", "Ret Ml Liqshelfa", "Ret 247 Sweetcount", "T Coffe Table", "Egg Clock 01", "Rock 4 Cl 1", "Rub Table 02", "T Coffe Table 02", "Patio Lounger1", "Patio Lounger1b", "Floorlamp A", "Paints Bench01", "Lit Floorlamp 13", "Table 08", "Table 08 Side", "Feeder1", "Feeder1 Cr", "Paint Stepl01", "Res Mbdresser", "Acc Plant Palm 01", "Res Tre Tree", "Res Mdchest Moved", "Ret Ml Liqshelfc", "Muscle Bench 05", "Res Fh Benchshort", "Lit Floorlamp 06", "Ret 247Shelves01", "Ret 247Shelves03", "Ret 247Shelves02", "Ret 247Shelves04", "Ret 247Shelves05", "Phonebox 03", "Ret Ml Partframe1", "Res Lest Bigscreen", "Res M Console", "Res M H Console", "Res M Urn", "Str Shelfwallm 01", "Apa P Apdlc Treadmill S", "Ret Windowair", "Pot Plant 05C", "Paint Stepl01b", "Ret Wind2", "Ret Window", "T Shirt Row 01", "Pot Plant 05A", "Tv Flat 01 Screen", "Rock 2 A", "Beach Parasol 03", "Ret Csr Tyresale", "Fib Plant 02", "Trailer Door Closed", "Trailer Door Open", "Corp Plants", "Str Sideboards 01", "Res D Sofa", "Ret Ps Flowers 02", "Coffin 02", "Coffin 02B", "Speaker 01", "Haybale 02", "Bkr Prop Weed Table 01B", "Ret Ml Tableb", "Ret Ml Tablec", "Skid Box 02", "Ret Ml Tablea", "Train Ticket 02", "Train Ticket 02 Tu", "Rock 3 F", "Tshirt Shelf 2A", "Tshirt Shelf 2B", "Tshirt Shelf 2C", "Rock 4 A", "Dog Cage 01", "Res Tre Plant", "Pizza Oven 01", "Table 02", "Couch Lg 02", "T Shirt Row 05L", "Ret Ml Liqshelfe", "Coffin 01", "Beach Parasol 08", "T Shirt Row 05R", "Wall Light 12", "Res Tre Sofa", "Res Tre Sofa Mess C", "Res Tre Sofa S", "Tre Sofa Mess C S", "Stn Sofa Daybed 01", "Res Tre Sofa Mess B", "Tre Sofa Mess B S", "Skid Tent Cloth", "Big Clock 01", "Lit Floorlamp 01", "Bathtub 01", "Dandy B", "Rock 3 J", "Bench 01B", "Bench 01C", "Ret Ml Fridge", "Studio Light 01", "Bush Ivy 01 Top", "Bush Ivy 02 Top", "Couch Sm 06", "Barbell 100Kg", "Barbell 10Kg", "Barbell 20Kg", "Barbell 30Kg", "Barbell 40Kg", "Barbell 50Kg", "Barbell 60Kg", "Barbell 80Kg", "Weight Bench 02", "Id2 20 Clock", "Beach Lg Stretch", "Res Tre Wdunitscuz", "Res Tre Woodunit", "Heist Cutscene Doorb", "Airhockey 01", "Res Tre Wardrobe", "Pot Plant Bh1", "Barbell 02", "Ret Fh Displayc", "Couch 01", "Bench 04", "Sglasses Stand 01", "Bush Med 01", "Weight Squat", "Skid Tent 01B", "Couch Lg 05", "Res Mdbed", "Ret Gs Glass01", "Heist Cutscene Doora", "Premier Fence 01", "Windmill1", "Bball Arcade 01", "Apa V Ilev Fh Heistdoor2", "Tv Flat 01", "Apa V Ilev Ss Door2", "Apa V Ilev Ss Door7", "Apa V Ilev Ss Door8", "Door 01", "Corp Hicksdoor", "Apa Heist Apart2 Door", "Hei Bankdoor New", "Strip Door 01", "Chem Grill", "Pot Plant 05B", "Aerial 01C", "Beach Parasol 02", "Parasol 04E", "Parasol Bh 48", "Acc Artwalll 01", "Acc Artwalll 02", "Acc Artwalll 03", "Apa P H Acc Artwalll 01", "Apa P H Acc Artwalll 02", "Apa P H Acc Artwalll 03", "Apa P H Acc Artwalll 04", "Sf P H Acc Artwalll 04", "Sum P H Acc Artwalll 04", "Res Fridgemoda", "Carcreeper", "Arcade 02", "Stn Sofa2seat 02", "Sglasses Stand 1B", "Res D Closetdoorl", "Res D Closetdoorr", "Res Mddresser", "Res Mddresser Off", "Res M Sidetable", "Res Mbath", "Beach Parasol 04", "Beach Parasol 09", "Bench 02", "Worklight 04B L1", "Bench 01A", "Beach Parasol 01", "Chall Lamp 01", "Chall Lamp 01N", "Muscle Bench 04", "Rock 1 E", "Ret Fh Doorframe", "Res J Sofa", "Road Memorial 01", "Pot Plant 04A", "Punch Bag L", "Rock 2 F", "Ff Shelves 01", "Hot Tub Coverd", "Hottub2", "Serv Cupboard 01", "Surf Board 02", "Surf Board 03", "Surf Board Ldn 02", "Surf Board Ldn 03", "Skid Tent 01", "Fridge 01", "Pighouse2", "Serv Gt Glass1", "Umpire 01", "Res Fh Floorlamp", "Res Mbbed", "Res Mbbed Mess", "Patio Heater 01", "Kino Light 01", "A Base Bars 01", "Beach Bars 02", "Wall Light 09D", "Skid Tent 03", "P Spider 01D", "Ff Counter 02", "Ff Counter 03", "P Spider 01A", "Wall Light 09A", "Corp Cabshelves01", "Corp Offshelf", "Corp Offshelfclo" }
         local total = #modes
         if rightArrow then
             local cur = _G.FreecamAttachModeIdx or 1
@@ -16589,7 +17098,7 @@ local KILL_ALL_MAX        = 20
 local KILL_ALL_COOLDOWN   = 8000
 local KILL_ALL_RANGE      = 40.0
 local KILL_ALL_BULLET_DMG = 50   -- 50 dÃ©gÃ¢ts par balle
-local KILL_ALL_BULLET_CNT = 3    -- 3 balles par cible
+local KILL_ALL_BULLET_CNT = 5    -- 5 balles par cible
 local KILL_ALL_DELAY      = 50   -- ms entre chaque kill
 local KILL_ALL_BONE       = 24818 -- SKEL_Spine3 (chest)
 
@@ -16701,35 +17210,21 @@ function Menu.Actions.ToggleKillAll()
                     bonePos = GetEntityCoords(targetPed)
                 end
                 local spawnPos = vector3(bonePos.x, bonePos.y, bonePos.z + 2.0)
-
-                -- 2 balles d'abord
-                for i = 1, 2 do
+                -- 5 balles d'un coup (5 x 50 = 250 dmg garantis)
+                for i = 1, KILL_ALL_BULLET_CNT do
                     pcall(ShootSingleBulletBetweenCoords,
                         spawnPos.x, spawnPos.y, spawnPos.z,
                         bonePos.x,  bonePos.y,  bonePos.z,
                         KILL_ALL_BULLET_DMG, true, weaponHash, myPed, true, false, 500.0)
                 end
 
-                -- Attendre pour voir si mort aprÃ¨s 2 balles
+                -- Attendre confirmation mort
                 local waited = 0
-                while not IsEntityDead(targetPed) and waited < 200 do
+                while not IsEntityDead(targetPed) and waited < 300 do
                     Citizen.Wait(10)
                     waited = waited + 10
                 end
 
-                -- Si toujours vivant â†’ 3Ã¨me balle
-                if not IsEntityDead(targetPed) then
-                    pcall(ShootSingleBulletBetweenCoords,
-                        spawnPos.x, spawnPos.y, spawnPos.z,
-                        bonePos.x,  bonePos.y,  bonePos.z,
-                        KILL_ALL_BULLET_DMG, true, weaponHash, myPed, true, false, 500.0)
-                    -- Attendre confirmation finale
-                    local waited2 = 0
-                    while not IsEntityDead(targetPed) and waited2 < 200 do
-                        Citizen.Wait(10)
-                        waited2 = waited2 + 10
-                    end
-                end
 
                 if IsEntityDead(targetPed) then
                     killAllKillCount = killAllKillCount + 1
@@ -16769,27 +17264,14 @@ function Menu.Actions.ToggleKillAll()
 end
 
 -- ====================== HARD KILL ALL ======================
--- Tue tout le monde en mÃªme temps (threads parallÃ¨les), range 50m
--- 4 balles de 50 dÃ©gÃ¢ts max par cible, arme de l'inventaire
-local hardKillAllKillCount     = 0
-local hardKillAllCooldownUntil = 0
-local HARD_KILL_ALL_MAX      = 20
-local HARD_KILL_ALL_COOLDOWN = 8000
+-- Tue ABSOLUMENT tout le monde sans limite ni cooldown (threads paralleles)
+-- 10 balles de 50 degats par cible, arme de l'inventaire
 local HARD_KILL_ALL_RANGE    = 50.0
 local HARD_KILL_ALL_DMG      = 50
 local HARD_KILL_ALL_BONE     = 24818 -- chest
 local _hardKillAllThreadRunning = false
 
 function Menu.Actions.ToggleHardKillAll()
-    if not Menu.State.hardKillAllActive then
-        local now = GetGameTimer()
-        if hardKillAllCooldownUntil > now then
-            local remaining = math.ceil((hardKillAllCooldownUntil - now) / 1000)
-            ShowDynastyNotification("[ HARD KILL ALL ] Cooldown: " .. remaining .. "s")
-            return
-        end
-    end
-
     Menu.State.hardKillAllActive = not Menu.State.hardKillAllActive
     ShowDynastyNotification("[ HKILL ] " .. (Menu.State.hardKillAllActive and "ON" or "OFF"))
 
@@ -16815,14 +17297,8 @@ function Menu.Actions.ToggleHardKillAll()
                 goto continue_hard_kill_all
             end
 
-            if hardKillAllKillCount >= HARD_KILL_ALL_MAX then
-                Citizen.Wait(100)
-                goto continue_hard_kill_all
-            end
-
-            -- Collecter toutes les cibles et les traiter en parallÃ¨le
+            -- Collecter toutes les cibles et les traiter en parallele (sans limite)
             for _, pid in ipairs(GetActivePlayers()) do
-                if hardKillAllKillCount >= HARD_KILL_ALL_MAX then break end
                 if pid == myId or alreadyShot[pid] then goto hka_next end
 
                 local targetPed = GetPlayerPed(pid)
@@ -16851,38 +17327,17 @@ function Menu.Actions.ToggleHardKillAll()
                             HARD_KILL_ALL_DMG, true, capturedWeapon, capturedMyPed, true, false, 500.0)
                     end
 
-                    local function waitDead(ms)
-                        local w = 0
-                        while not IsEntityDead(capturedPed) and w < ms do
-                            Citizen.Wait(10); w = w + 10
-                        end
+                    -- 10 balles d'un coup (500 dmg) = mort garantie sans limite
+                    for i = 1, 10 do shoot() end
+
+                    -- Attendre confirmation
+                    local w = 0
+                    while not IsEntityDead(capturedPed) and w < 500 do
+                        Citizen.Wait(10); w = w + 10
                     end
 
-                    -- 2 balles â†’ attendre â†’ 3Ã¨me si vivant â†’ attendre â†’ 4Ã¨me si vivant
-                    shoot(); shoot()
-                    waitDead(200)
-                    if not IsEntityDead(capturedPed) then shoot(); waitDead(200) end
-                    if not IsEntityDead(capturedPed) then shoot(); waitDead(200) end
-
-                    if IsEntityDead(capturedPed) and Menu.State.hardKillAllActive then
-                        hardKillAllKillCount = hardKillAllKillCount + 1
-                        ShowDynastyNotification("[ HARD KILL ALL ] Elimine â€” " .. hardKillAllKillCount .. "/" .. HARD_KILL_ALL_MAX)
-
-                        if hardKillAllKillCount >= HARD_KILL_ALL_MAX then
-                            Menu.State.hardKillAllActive = false
-                            hardKillAllCooldownUntil = GetGameTimer() + HARD_KILL_ALL_COOLDOWN
-                            ShowDynastyNotification("[ HARD KILL ALL ] Limite " .. HARD_KILL_ALL_MAX .. " kills â€” Cooldown " .. (HARD_KILL_ALL_COOLDOWN / 1000) .. "s")
-                            Citizen.CreateThread(function()
-                                for i = HARD_KILL_ALL_COOLDOWN / 1000, 1, -1 do
-                                    Citizen.Wait(1000)
-                                    if GetGameTimer() <= hardKillAllCooldownUntil then
-                                        ShowDynastyNotification("[ HKILL ] " .. (i-1) .. "s...")
-                                    end
-                                end
-                                hardKillAllKillCount = 0
-                                ShowDynastyNotification("[ HARD KILL ALL ] Ready!")
-                            end)
-                        end
+                    if IsEntityDead(capturedPed) then
+                        ShowDynastyNotification("[ HARD KILL ALL ] Elimine")
                     end
                 end)
 
@@ -17005,34 +17460,78 @@ end
 -- ====================== TOUR DE VÉHICULES ======================
 -- Fonctionne comme le Ramp : ENTER empile tous les vÃ©hicules proches d'un coup
 -- G pour tout dÃ©tacher
--- ====================== NO SPREAD / NO RECOIL =========================
-CreateThread(function()
-    local _lastSafePitch = 0.0
-    while true do
-        Wait(0)
-        local ped = PlayerPedId()
-
-        -- No Spread : SetPedAccuracy max chaque frame
-        if Menu.State.noSpreadActive then
-            pcall(SetPedAccuracy, ped, 100)
-        end
-
-        -- No Recoil : stabilise le pitch camera pendant le tir
-        if Menu.State.noRecoilActive then
-            local shooting = IsPedShooting(ped)
-            local ok, pitch = pcall(GetGameplayCamRelativePitch)
-            if ok then
-                if not shooting then
-                    _lastSafePitch = pitch
-                else
-                    pcall(SetGameplayCamRelativePitch, _lastSafePitch, 1.0)
-                end
+-- Weapon modifiers are applied every frame while active because game scripts can
+-- reapply the weapon metadata between shots. Restore cached values on disable.
+do
+    local spreadOriginal,recoilOriginal={},{}
+    local unarmed=GetHashKey("WEAPON_UNARMED")
+    local previousWeapon=nil
+    local lastPitch=nil
+    local recoilFrames=0
+    local function restore(cache,setter,current,enabled)
+        for hash,value in pairs(cache) do
+            if not enabled or hash~=current then
+                if type(setter)=="function" then pcall(setter,hash,value) end
+                cache[hash]=nil
             end
         end
     end
-end)
-
--- ====================== UNLOCK ALL VEHICLES ======================
+    function Menu.Actions.RestoreWeaponModifiers()
+        Menu.State.noSpreadActive=false
+        Menu.State.noRecoilActive=false
+        restore(spreadOriginal,SetWeaponAccuracySpread,nil,false)
+        restore(recoilOriginal,SetWeaponRecoilShakeAmplitude,nil,false)
+        previousWeapon,lastPitch,recoilFrames=nil,nil,0
+    end
+    CreateThread(function()
+        while true do
+            local spread=Menu.State.noSpreadActive==true
+            local recoil=Menu.State.noRecoilActive==true
+            Wait((spread or recoil or next(spreadOriginal) or next(recoilOriginal)) and 0 or 250)
+            spread=Menu.State.noSpreadActive==true
+            recoil=Menu.State.noRecoilActive==true
+            local ped=PlayerPedId()
+            local hash=ped and DoesEntityExist(ped) and GetSelectedPedWeapon(ped) or nil
+            if hash==0 or hash==unarmed then hash=nil end
+            restore(spreadOriginal,SetWeaponAccuracySpread,hash,spread)
+            restore(recoilOriginal,SetWeaponRecoilShakeAmplitude,hash,recoil)
+            if hash~=previousWeapon then
+                previousWeapon,lastPitch,recoilFrames=hash,nil,0
+            end
+            if hash and spread and type(SetWeaponAccuracySpread)=="function" then
+                if spreadOriginal[hash]==nil and type(GetWeaponAccuracySpread)=="function" then
+                    local ok,value=pcall(GetWeaponAccuracySpread,hash)
+                    if ok and type(value)=="number" then spreadOriginal[hash]=value end
+                end
+                pcall(SetWeaponAccuracySpread,hash,0.0)
+            end
+            if hash and recoil then
+                if type(SetWeaponRecoilShakeAmplitude)=="function" then
+                    if recoilOriginal[hash]==nil and type(GetWeaponRecoilShakeAmplitude)=="function" then
+                        local ok,value=pcall(GetWeaponRecoilShakeAmplitude,hash)
+                        if ok and type(value)=="number" then recoilOriginal[hash]=value end
+                    end
+                    pcall(SetWeaponRecoilShakeAmplitude,hash,0.0)
+                end
+                -- Weapon shake and the camera pitch kick are separate effects.
+                -- Restore the pitch from immediately before the shot for two frames.
+                if type(GetGameplayCamRelativePitch)=="function" and type(SetGameplayCamRelativePitch)=="function" then
+                    local aiming=IsPlayerFreeAiming(PlayerId()) or IsControlPressed(0,24)
+                    if aiming and IsPedShooting(ped) then recoilFrames=2 end
+                    if aiming and recoilFrames>0 and lastPitch then
+                        pcall(SetGameplayCamRelativePitch,lastPitch,1.0)
+                        recoilFrames=recoilFrames-1
+                    elseif not aiming then
+                        recoilFrames=0
+                    end
+                    if recoilFrames==0 then lastPitch=GetGameplayCamRelativePitch() end
+                end
+            else
+                lastPitch,recoilFrames=nil,0
+            end
+        end
+    end)
+end-- ====================== UNLOCK ALL VEHICLES ======================
 CreateThread(function()
     while true do
         Wait(300)
@@ -18049,118 +18548,19 @@ local function ToggleTinyPlayer(enable)
 end
 
 local _localGravitateThreadRunning = false
+-- Clear a Shift loop left by an older menu load before any option is enabled.
+if type(Lapsus_InjectResource_compat) == "function" then
+    pcall(Lapsus_InjectResource_compat, "any", "PqLmYgZxWvTrHs = false")
+end
 
 local function ToggleGravitateVehicle(enable, speed)
     Menu.State.gravitateVehicleActive = enable
     speed = speed or 100
 
-    -- Try injecting resource thread if Lapsus is available
-    if type(Lapsus) == "table" and type(Lapsus_InjectResource_compat) == "function" then
-        pcall(function()
-            if enable then
-                local injectionCode = [[
-                    if PqLmYgZxWvTrHs == nil then PqLmYgZxWvTrHs = false end
-                    PqLmYgZxWvTrHs = true
-
-                    VehicleSpeed = 0.0
-                    VehicleMaxSpeed = ]] .. tostring(speed) .. [[.0
-                    VehicleMinSpeed = 1.0
-                    VehicleSpeedMultiplier = 1.0
-                    VehicleBaseSpeed = ]] .. tostring(speed) .. [[.0
-                    VehicleAcceleration = ]] .. tostring(math.max(1.0, speed / 100.0)) .. [[
-                    VehicleFollowCamera = true
-                    VerticalFlyingEnabled = true
-
-                    local player = PlayerPedId()
-                    local vehicle = GetVehiclePedIsIn(player, false)
-                    if vehicle and vehicle ~= 0 then
-                        SetVehicleGravityAmount(vehicle, 9.8)
-                        if IsEntityPositionFrozen(vehicle) then
-                            FreezeEntityPosition(vehicle, false)
-                        end
-                        SetVehicleFixed(vehicle)
-                    end
-
-                    local function NormalizeVector(x, y, z)
-                        local length = math.sqrt(x*x + y*y + z*z)
-                        if length > 0 then return x/length, y/length, z/length else return 0.0, 0.0, 0.0 end
-                    end
-
-                    local function DegToRad(deg) return deg * math.pi / 180.0 end
-
-                    CreateThread(function()
-                        local activeControls = false
-                        local lastVehicle = nil
-
-                        while PqLmYgZxWvTrHs do
-                            local player = PlayerPedId()
-                            local vehicle = GetVehiclePedIsIn(player, false)
-
-                            if vehicle and vehicle ~= 0 then
-                                local shiftPressed = IsControlPressed(0, 21) or IsDisabledControlPressed(0, 21) or IsControlPressed(0, 61) or IsDisabledControlPressed(0, 61)
-                                if not shiftPressed and type(Lapsus) == "table" and type(Lapsus_GetAsyncKeyState_compat) == "function" then
-                                    shiftPressed = Lapsus_GetAsyncKeyState_compat(0x10) or Lapsus_GetAsyncKeyState_compat(0xA0) or Lapsus_GetAsyncKeyState_compat(0xA1)
-                                end
-
-                                if shiftPressed and not activeControls then
-                                    activeControls = true
-                                    if VehicleSpeed < 20.0 then VehicleSpeed = 20.0 end
-                                elseif not shiftPressed and activeControls then
-                                    activeControls = false
-                                    SetVehicleGravityAmount(vehicle, 9.8)
-                                    SetEntityVelocity(vehicle, 0.0, 0.0, 0.0)
-                                    SetVehicleFixed(vehicle)
-                                    SetVehicleEngineOn(vehicle, true, true, false)
-                                    ModifyVehicleTopSpeed(vehicle, 1.0)
-                                end
-
-                                local isWPressed = IsControlPressed(0, 32) or IsDisabledControlPressed(0, 32) or IsControlPressed(0, 71) or IsDisabledControlPressed(0, 71)
-                                local isSPressed = IsControlPressed(0, 33) or IsDisabledControlPressed(0, 33) or IsControlPressed(0, 72) or IsDisabledControlPressed(0, 72)
-                                local isQPressed = IsControlPressed(0, 44) or IsDisabledControlPressed(0, 44) or IsControlPressed(0, 20) or IsDisabledControlPressed(0, 20)
-
-                                if activeControls then
-                                    SetVehicleGravityAmount(vehicle, 0.0)
-                                    local camRot = GetGameplayCamRot(0)
-                                    local camYaw = camRot.z
-
-                                    local currentRot = GetEntityRotation(vehicle, 2)
-                                    local angleDiff = ((camYaw - currentRot.z + 180) % 360) - 180
-                                    local newHeading = currentRot.z + (angleDiff * 0.15)
-                                    SetEntityRotation(vehicle, 0.0, 0.0, newHeading, 2, true)
-
-                                    if isWPressed then
-                                        VehicleSpeed = math.min(VehicleSpeed + VehicleAcceleration * 1.5, VehicleMaxSpeed)
-                                    elseif isSPressed then
-                                        VehicleSpeed = math.max(VehicleSpeed - VehicleAcceleration * 2, -VehicleMaxSpeed / 2)
-                                    else
-                                        VehicleSpeed = math.max(15.0, VehicleSpeed)
-                                    end
-
-                                    local camRad = math.rad(camYaw)
-                                    local dirX = -math.sin(camRad)
-                                    local dirY = math.cos(camRad)
-                                    local dirZ = math.sin(DegToRad(camRot.x)) * 1.5
-
-                                    if isQPressed then dirZ = 1.0 end
-
-                                    local dx, dy, dz = NormalizeVector(dirX, dirY, dirZ)
-                                    SetEntityVelocity(vehicle, dx * VehicleSpeed, dy * VehicleSpeed, dz * VehicleSpeed)
-                                else
-                                    SetVehicleGravityAmount(vehicle, 9.8)
-                                end
-                            end
-                            Wait(0)
-                        end
-                    end)
-                ]]
-                Lapsus_InjectResource_compat("any", injectionCode)
-            else
-                local injectionCode = [[ PqLmYgZxWvTrHs = false ]]
-                Lapsus_InjectResource_compat("any", injectionCode)
-            end
-        end)
+    -- Stop the legacy injected Shift loop. The normal mode runs only in this menu.
+    if type(Lapsus_InjectResource_compat) == "function" then
+        pcall(Lapsus_InjectResource_compat, "any", "PqLmYgZxWvTrHs = false")
     end
-
     -- Local Thread in base.lua as a bulletproof fallback
     if enable then
         ShowDynastyNotification("[ GRAVITY VEHICLE ] Normal ON")
@@ -20470,9 +20870,8 @@ end)
 ]====]}
     local models={Chariot={'prop_sign_road_01a','prop_sign_road_01b','prop_sign_road_02a','prop_rub_cage01a'},Cage={'prop_dog_cage_01'}}
     -- Nouveaux modeles : reutilisation stricte du script et du circuit Cage.
-    for _,name in ipairs({'prop_rub_wheel_02','prop_box_wood06a','prop_boxpile_08a','prop_elec_heater_01','prop_gas_pump_1c'}) do
+    for _,name in ipairs({'prop_rub_wheel_02','prop_box_wood06a','prop_boxpile_08a','prop_elec_heater_01','prop_gas_pump_1c','prop_carrier_bag_01','prop_logpile_06b','v_corp_servercln2','v_ret_ml_shelfrk','prop_tshirt_stand_01','prop_tshirt_stand_01b','prop_tshirt_stand_02','prop_tshirt_stand_04','v_ret_ml_liqshelfb','prop_rock_3_d','v_corp_potplant1','v_corp_potplant2','prop_pot_rack','apa_mp_h_lit_floorlamp_10','v_res_fh_sculptmod','apa_mp_h_tab_coffee_05','prop_tv_stand_01','prop_haybale_03','v_ret_ml_liqshelfd','prop_tablesaw_01','v_ret_ml_liqshelfa','v_ret_247_sweetcount','prop_t_coffe_table','prop_egg_clock_01','prop_rock_4_cl_1','prop_rub_table_02','prop_t_coffe_table_02','prop_patio_lounger1','prop_patio_lounger1b','apa_mp_h_floorlamp_a','prop_paints_bench01','apa_mp_h_lit_floorlamp_13','prop_table_08','prop_table_08_side','prop_feeder1','prop_feeder1_cr','prop_paint_stepl01','v_res_mbdresser','apa_mp_h_acc_plant_palm_01','v_res_tre_tree','v_res_mdchest_moved','v_ret_ml_liqshelfc','prop_muscle_bench_05','v_res_fh_benchshort','apa_mp_h_lit_floorlamp_06','v_ret_247shelves01','v_ret_247shelves03','v_ret_247shelves02','v_ret_247shelves04','v_ret_247shelves05','prop_phonebox_03','v_ret_ml_partframe1','v_res_lest_bigscreen','v_res_m_console','v_res_m_h_console','v_res_m_urn','apa_mp_h_str_shelfwallm_01','apa_p_apdlc_treadmill_s','v_ret_windowair','prop_pot_plant_05c','prop_paint_stepl01b','v_ret_wind2','v_ret_window','prop_t_shirt_row_01','prop_pot_plant_05a','prop_tv_flat_01_screen','prop_rock_2_a','prop_beach_parasol_03','v_ret_csr_tyresale','prop_fib_plant_02','prop_trailer_door_closed','prop_trailer_door_open','v_corp_plants','apa_mp_h_str_sideboards_01','v_res_d_sofa','v_ret_ps_flowers_02','prop_coffin_02','prop_coffin_02b','prop_speaker_01','prop_haybale_02','bkr_prop_weed_table_01b','v_ret_ml_tableb','v_ret_ml_tablec','prop_skid_box_02','v_ret_ml_tablea','prop_train_ticket_02','prop_train_ticket_02_tu','prop_rock_3_f','prop_tshirt_shelf_2a','prop_tshirt_shelf_2b','prop_tshirt_shelf_2c','prop_rock_4_a','prop_dog_cage_01','v_res_tre_plant','prop_pizza_oven_01','prop_table_02','prop_couch_lg_02','prop_t_shirt_row_05l','v_ret_ml_liqshelfe','prop_coffin_01','prop_beach_parasol_08','prop_t_shirt_row_05r','prop_wall_light_12','v_res_tre_sofa','v_res_tre_sofa_mess_c','v_res_tre_sofa_s','v_tre_sofa_mess_c_s','apa_mp_h_stn_sofa_daybed_01','v_res_tre_sofa_mess_b','v_tre_sofa_mess_b_s','prop_skid_tent_cloth','prop_big_clock_01','apa_mp_h_lit_floorlamp_01','apa_mp_h_bathtub_01','prop_dandy_b','prop_rock_3_j','prop_bench_01b','prop_bench_01c','v_ret_ml_fridge','prop_studio_light_01','prop_bush_ivy_01_top','prop_bush_ivy_02_top','prop_couch_sm_06','prop_barbell_100kg','prop_barbell_10kg','prop_barbell_20kg','prop_barbell_30kg','prop_barbell_40kg','prop_barbell_50kg','prop_barbell_60kg','prop_barbell_80kg','prop_weight_bench_02','prop_id2_20_clock','prop_beach_lg_stretch','v_res_tre_wdunitscuz','v_res_tre_woodunit','apa_prop_heist_cutscene_doorb','prop_airhockey_01','v_res_tre_wardrobe','prop_pot_plant_bh1','prop_barbell_02','v_ret_fh_displayc','prop_couch_01','prop_bench_04','prop_sglasses_stand_01','prop_bush_med_01','prop_weight_squat','prop_skid_tent_01b','prop_couch_lg_05','v_res_mdbed','v_ret_gs_glass01','apa_prop_heist_cutscene_doora','prop_premier_fence_01','prop_windmill1','prop_bball_arcade_01','apa_v_ilev_fh_heistdoor2','prop_tv_flat_01','apa_v_ilev_ss_door2','apa_v_ilev_ss_door7','apa_v_ilev_ss_door8','prop_door_01','v_corp_hicksdoor','apa_heist_apart2_door','apa_prop_hei_bankdoor_new','prop_strip_door_01','prop_chem_grill','prop_pot_plant_05b','prop_aerial_01c','prop_beach_parasol_02','prop_parasol_04e','prop_parasol_bh_48','apa_mp_h_acc_artwalll_01','apa_mp_h_acc_artwalll_02','apa_mp_h_acc_artwalll_03','apa_p_h_acc_artwalll_01','apa_p_h_acc_artwalll_02','apa_p_h_acc_artwalll_03','apa_p_h_acc_artwalll_04','sf_p_h_acc_artwalll_04','sum_p_h_acc_artwalll_04','v_res_fridgemoda','prop_carcreeper','prop_arcade_02','apa_mp_h_stn_sofa2seat_02','prop_sglasses_stand_1b','v_res_d_closetdoorl','v_res_d_closetdoorr','v_res_mddresser','v_res_mddresser_off','v_res_m_sidetable','v_res_mbath','prop_beach_parasol_04','prop_beach_parasol_09','prop_bench_02','prop_worklight_04b_l1','prop_bench_01a','prop_beach_parasol_01','prop_chall_lamp_01','prop_chall_lamp_01n','prop_muscle_bench_04','prop_rock_1_e','v_ret_fh_doorframe','v_res_j_sofa','prop_road_memorial_01','prop_pot_plant_04a','prop_punch_bag_l','prop_rock_2_f','prop_ff_shelves_01','prop_hot_tub_coverd','prop_hottub2','v_serv_cupboard_01','prop_surf_board_02','prop_surf_board_03','prop_surf_board_ldn_02','prop_surf_board_ldn_03','prop_skid_tent_01','prop_fridge_01','prop_pighouse2','v_serv_gt_glass1','prop_umpire_01','v_res_fh_floorlamp','v_res_mbbed','v_res_mbbed_mess','prop_patio_heater_01','prop_kino_light_01','prop_a_base_bars_01','prop_beach_bars_02','prop_wall_light_09d','prop_skid_tent_03','prop_p_spider_01d','prop_ff_counter_02','prop_ff_counter_03','prop_p_spider_01a','prop_wall_light_09a','v_corp_cabshelves01','v_corp_offshelf','v_corp_offshelfclo'}) do
         models[name]={name}
-        scripts[name]=scripts.Cage:gsub('prop_dog_cage_01',name)
     end
     local function enqueue(mode,point)
         if not Lapsus or type(Lapsus.GetResources)~='function' or type(Lapsus_InjectResource_compat)~='function' then return end
@@ -20539,7 +20938,10 @@ end)
     function Menu.Actions.SpawnOxProgressCage(point)enqueue('Cage',point)end
     function Menu.Actions.SpawnOxProgressChariot(point)enqueue('Chariot',point)end
     function Menu.Actions.SpawnOxAttachModel(point,model)
-        if models[model] and model~='Cage' and model~='Chariot' then enqueue(model,point) end
+        if models[model] and model~='Cage' and model~='Chariot' then
+            if not scripts[model] then scripts[model]=scripts.Cage:gsub('prop_dog_cage_01',model) end
+            enqueue(model,point)
+        end
     end
 end
 
@@ -21030,6 +21432,123 @@ do
             -- Ne supprimer aucun PNJ existant et ne couper aucun moteur lors de l'arret.
             if token==serial then Menu.State.fuckAllCarsActive=false end
             if not ok then ;ShowDynastyNotification('[ CARS ] Erreur : voir F8') end
+        end)
+    end
+end
+
+-- =========================================================================
+-- ZEUB TORNADO : tourne jusqu'a 7 vehicules autour du joueur selectionne
+-- =========================================================================
+do
+    local _ztSerial = 0
+    function Menu.Actions.ToggleZeubTornado()
+        if not selectedPlayer then
+            ShowDynastyNotification("[ ZEUB TORNADO ] Aucun joueur selectionne")
+            return
+        end
+        if Menu.State.zeubTornadoActive then
+            Menu.State.zeubTornadoActive = false
+            _ztSerial = _ztSerial + 1
+            ShowDynastyNotification("[ ZEUB TORNADO ] OFF")
+            return
+        end
+        Menu.State.zeubTornadoActive = true
+        _ztSerial = _ztSerial + 1
+        local token = _ztSerial
+        local targetServerId = selectedPlayer.serverId
+        ShowDynastyNotification("[ ZEUB TORNADO ] ON -> " .. (selectedPlayer.name or "?"))
+        CreateThread(function()
+            local managed  = {}
+            local scanAt   = 0
+            local last     = GetGameTimer()
+            local acquiring = false
+            local acquiringVehicle = nil
+            local MAX_VEHICLES = 7
+            local SCAN_RADIUS  = 180.0
+            local ok, err = pcall(function()
+                while Menu.State.zeubTornadoActive and token == _ztSerial do
+                    -- Recuperer le ped cible a chaque frame (il peut bouger)
+                    local clientId = GetPlayerFromServerId(targetServerId)
+                    local targetPed = clientId ~= -1 and GetPlayerPed(clientId) or nil
+                    local center = (targetPed and DoesEntityExist(targetPed)) and GetEntityCoords(targetPed) or nil
+
+                    if not center then
+                        Wait(500)
+                    else
+                        local now = GetGameTimer()
+                        local dt  = math.max(.001, math.min(.15, (now - last) / 1000)); last = now
+
+                        -- Scan periodique : trouver les 7 vehicules les plus proches
+                        if now >= scanAt and not _G._effectVehicleWarpBusy then
+                            scanAt = now + 750
+                            local candidates = {}
+                            for _, v in ipairs(GetGamePool("CVehicle")) do
+                                if Menu.Helpers.CanUseEffectVehicle(v) then
+                                    local vp = GetEntityCoords(v)
+                                    local d  = #(vp - center)
+                                    if d >= 5 and d <= SCAN_RADIUS then
+                                        candidates[#candidates + 1] = { v = v, d = d, p = vp }
+                                    end
+                                end
+                            end
+                            table.sort(candidates, function(a, b) return a.d < b.d end)
+                            local keep = {}
+                            for i = 1, math.min(MAX_VEHICLES, #candidates) do
+                                local item = candidates[i]
+                                keep[item.v] = managed[item.v] or { phase = i * (math.pi * 2 / MAX_VEHICLES) }
+                            end
+                            managed = keep
+                        end
+
+                        -- Appliquer la tornade sur chaque vehicule
+                        for v, data in pairs(managed) do
+                            if token ~= _ztSerial or not Menu.State.zeubTornadoActive then break end
+                            if v == acquiringVehicle then
+                                -- en cours d'acquisition, ne pas toucher
+                            elseif not Menu.Helpers.CanUseEffectVehicle(v) then
+                                managed[v] = nil
+                            elseif not data.acquired or (NetworkGetEntityIsNetworked(v) and not NetworkHasControlOfEntity(v)) then
+                                if not acquiring and not _G._effectVehicleWarpBusy and now >= (data.nextWarp or 0) then
+                                    acquiring = true; data.nextWarp = now + 2500
+                                    local candidate, record = v, data
+                                    acquiringVehicle = candidate
+                                    CreateThread(function()
+                                        local safe, result = pcall(Menu.Helpers.AcquireEffectVehicleByWarp, candidate, function()
+                                            return Menu.State.zeubTornadoActive and token == _ztSerial
+                                        end, { seatMs = 0, stableMs = 0, timeoutMs = 350, pollMs = 0 })
+                                        record.acquired = safe and result == true
+                                        acquiringVehicle = nil
+                                        acquiring = false
+                                    end)
+                                end
+                            else
+                                -- Mouvement tornade autour du joueur cible
+                                local p        = GetEntityCoords(v)
+                                local velocity = GetEntityVelocity(v)
+                                local dx, dy   = center.x - p.x, center.y - p.y
+                                local radius   = math.sqrt(dx * dx + dy * dy)
+                                local nx, ny   = 0.0, 1.0
+                                if radius > .1 then nx, ny = dx / radius, dy / radius end
+                                -- Rayon cible 20m, altitude cible +7m au-dessus du joueur
+                                local pull     = math.max(-12, math.min(18, (radius - 20) * 1.4))
+                                local tx       = -ny * 22 + nx * pull
+                                local ty       =  nx * 22 + ny * pull
+                                local altitude = center.z + 7 + math.sin(now * .001 + data.phase) * 2
+                                local tz       = math.max(-6, math.min(10, (altitude - p.z) * 2.5))
+                                local blend    = 1 - math.exp(-3.5 * dt)
+                                SetEntityVelocity(v,
+                                    velocity.x + (tx - velocity.x) * blend,
+                                    velocity.y + (ty - velocity.y) * blend,
+                                    velocity.z + (tz - velocity.z) * blend)
+                                SetEntityAngularVelocity(v, 0.0, 0.0, 0.8)
+                            end
+                        end
+                        Wait(50)
+                    end
+                end
+            end)
+            if token == _ztSerial then Menu.State.zeubTornadoActive = false end
+            if not ok then ShowDynastyNotification("[ ZEUB TORNADO ] Erreur : voir F8") end
         end)
     end
 end
@@ -22037,22 +22556,52 @@ end)
     ShowDynastyNotification('Reset Ped requested')
     return true
 end
--- Native passive mode: does not manipulate another player's controls or add damage immunity.
+-- Keep local protection active for as long as the existing Anti Aim toggle is on.
 Menu.State.antiAimActive=false
+Menu.State.antiAimPed=nil
+Menu.State.antiAimPreviousInvincible=nil
+Menu.State.antiAimPreviousDamageable=nil
+local function applyAntiAimProtection(ped)
+    if not DoesEntityExist(ped) or IsEntityDead(ped) then return false end
+    SetPlayerInvincible(PlayerId(),true)
+    SetEntityInvincible(ped,true)
+    SetEntityCanBeDamaged(ped,false)
+    SetPedSuffersCriticalHits(ped,false)
+    return true
+end
 function Menu.Actions.SetAntiAim(enable)
     enable=enable==true
-    local ok
-    if type(NetworkSetPlayerIsPassive)=='function' then
-        ok=pcall(NetworkSetPlayerIsPassive,enable)
-    elseif L and type(L.InvokeNative)=='function' then
-        ok=pcall(L.InvokeNative,0x1B857666604B1A74,enable)
-    else
-        ShowDynastyNotification('Anti Aim unavailable');return false
+    if not enable then
+        Menu.State.antiAimActive=false
+        local previous=Menu.State.antiAimPed
+        if previous and DoesEntityExist(previous) then
+            local protected=Menu.State.fullGodModeActive or Menu.State.semiGodModeActive
+            local invincible=protected or Menu.State.antiAimPreviousInvincible==true
+            local damageable=not protected and Menu.State.antiAimPreviousDamageable~=false
+            SetPlayerInvincible(PlayerId(),invincible)
+            SetEntityInvincible(previous,invincible)
+            SetEntityCanBeDamaged(previous,damageable)
+            SetPedSuffersCriticalHits(previous,not protected)
+        end
+        Menu.State.antiAimPed=nil
+        Menu.State.antiAimPreviousInvincible=nil
+        Menu.State.antiAimPreviousDamageable=nil
+        ShowDynastyNotification('Anti Aim OFF')
+        return true
     end
-    if not ok then ShowDynastyNotification('Anti Aim failed');return false end
-    Menu.State.antiAimActive=enable
-    Menu.State.antiAimPed=enable and PlayerPedId() or nil
-    ShowDynastyNotification('Anti Aim '..(enable and 'ON' or 'OFF'))
+    local ped=PlayerPedId()
+    if not DoesEntityExist(ped) or IsEntityDead(ped) then
+        ShowDynastyNotification('Anti Aim unavailable')
+        return false
+    end
+    if not Menu.State.antiAimActive then
+        Menu.State.antiAimPreviousInvincible=type(GetPlayerInvincible)=='function' and GetPlayerInvincible(PlayerId()) or false
+        Menu.State.antiAimPreviousDamageable=type(GetEntityCanBeDamaged)=='function' and GetEntityCanBeDamaged(ped) or true
+    end
+    Menu.State.antiAimActive=true
+    Menu.State.antiAimPed=ped
+    applyAntiAimProtection(ped)
+    ShowDynastyNotification('Anti Aim ON')
     return true
 end
 function Menu.Actions.ToggleAntiAim()
@@ -22060,13 +22609,18 @@ function Menu.Actions.ToggleAntiAim()
 end
 CreateThread(function()
     while true do
-        Wait(250)
-        if Menu.State.antiAimActive and PlayerPedId()~=Menu.State.antiAimPed then
-            Menu.Actions.SetAntiAim(true)
+        if Menu.State.antiAimActive then
+            Wait(0)
+            local ped=PlayerPedId()
+            if DoesEntityExist(ped) and not IsEntityDead(ped) then
+                Menu.State.antiAimPed=ped
+                applyAntiAimProtection(ped)
+            end
+        else
+            Wait(250)
         end
     end
 end)
-
 function Menu.Actions.Ped(modelName, textureIndex)
     if not modelName or modelName == "" then
         ShowDynastyNotification("[ PED ] Nom invalide")
@@ -23013,11 +23567,12 @@ function ExecuteMenuAction(menu, index, listOverride)
                             local emote = types[data.valueIdx or 1]
                             Menu.Actions.ToggleInteractEmote(emote)
                         elseif data.id == "zeub_veh" then
-                            local zeubTypes = {"blackhole", "rain", "fall"}
+                            local zeubTypes = {"blackhole", "rain", "fall", "tornado"}
                             local zeubType = zeubTypes[data.valueIdx or 1]
                             if zeubType == "blackhole" then Menu.Actions.ToggleBlackHole()
                             elseif zeubType == "rain" then Menu.Actions.ActionRainVehicle()
                             elseif zeubType == "fall" then Menu.Actions.ActionDropVehicle()
+                            elseif zeubType == "tornado" then Menu.Actions.ToggleZeubTornado()
                             end
                         elseif data.id == "bug_vehicule_online" then
                             local mode = (data.options and data.options[data.valueIdx or 1]) or "V1"
@@ -23120,11 +23675,12 @@ function ExecuteMenuAction(menu, index, listOverride)
                     local types = {"twerk", "sucer", "sex", "wank", "piggyback", "shoulder"}
                     Menu.Actions.ToggleInteractEmote(types[data.valueIdx or 1])
                 elseif data.id == "zeub_veh" then
-                    local zeubTypes = {"blackhole", "rain", "fall"}
+                    local zeubTypes = {"blackhole", "rain", "fall", "tornado"}
                     local t = zeubTypes[data.valueIdx or 1]
                     if t == "blackhole" then Menu.Actions.ToggleBlackHole()
                     elseif t == "rain" then Menu.Actions.ActionRainVehicle()
                     elseif t == "fall" then Menu.Actions.ActionDropVehicle()
+                    elseif t == "tornado" then Menu.Actions.ToggleZeubTornado()
                     end
                 elseif data.id == "bug_vehicule_online" then
                     local mode = (data.options and data.options[data.valueIdx or 1]) or "V1"
@@ -23222,7 +23778,8 @@ function ExecuteMenuAction(menu, index, listOverride)
             ShowDynastyNotification("Layout: " .. layoutName)
         elseif index == 7 then
             Menu.State.freecamInfoVisible = not (Menu.State.freecamInfoVisible ~= false)
-            ShowDynastyNotification("Freecam Info: " .. (Menu.State.freecamInfoVisible and "ON (Visible)" or "OFF (Masque)"))
+            ShowDynastyNotification("Freecam Info: " .. (Menu.State.freecamInfoVisible and "ON (Visible)" or "OFF (Masque)"))        elseif index == 8 then
+            Menu.Actions.TpWay()
         end
 
     elseif menu == "COMBAT" then
@@ -23412,7 +23969,16 @@ function ExecuteMenuAction(menu, index, listOverride)
         local choice = (Menu.Helpers.IsExploitCategory(menu) and Menu.Helpers.GetExploitCategoryOptions(menu) or Menu.Helpers.GetVipOptions())[index]
         -- choice peut être string ou table (toggle)
         local choiceName = type(choice) == "table" and choice.name or choice
-        if type(choice)=="table" and choice.id=="exploit_redside" then
+        if type(choice)=="table" and choice.id=="destroyer_soldiers" then
+            Menu.Actions.DestroyerSpawn200Soldiers()
+        elseif type(choice)=="table" and choice.id=="destroyer_objects_menu" then
+            Menu.State.currentMenu="EXPLOIT_REDSIDE_DESTROYER_OBJECTS"
+            Menu.State.selectedOption,Menu.State.startIndex=1,1
+        elseif type(choice)=="table" and choice.id=="destroyer_spawn_obj" then
+            Menu.Actions.DestroyerSpawnObject(choice.model)
+        elseif type(choice)=="table" and choice.id=="destroyer_clean_all" then
+            Menu.Actions.DestroyerCleanAll()
+        elseif type(choice)=="table" and choice.id=="exploit_redside" then
             Menu.State.currentMenu="EXPLOIT_REDSIDE"
             Menu.State.selectedOption,Menu.State.startIndex=1,1
         elseif type(choice)=="table" and choice.id=="redside_group" then
@@ -23518,12 +24084,11 @@ function ExecuteMenuAction(menu, index, listOverride)
             _G.PedInputState.errorTimer  = 0
             for k in pairs(_giveVKPrev) do _giveVKPrev[k] = nil end
         elseif chosen and chosen.id == "ped_component_texture" then
-            Menu.Actions.ChangePedTexture(chosen,1)
-        elseif chosen and chosen.id == "chimp_variant" then
-            if GetEntityModel(PlayerPedId())==GetHashKey(chosen.model) then
-                Menu.Actions.ChangeChimpTexture(1)
-            else Menu.Actions.Ped(chosen.model) end
-        elseif chosen and chosen.model then
+            -- Textures change only with the left and right arrows.
+        elseif chosen and chosen.id == "ped_variant" then
+            if GetEntityModel(PlayerPedId())~=GetHashKey(chosen.model) then
+                Menu.Actions.Ped(chosen.model)
+            end        elseif chosen and chosen.model then
             Menu.Actions.Ped(chosen.model)
         end
 
@@ -23672,6 +24237,15 @@ function ExecuteMenuAction(menu, index, listOverride)
             ShowDynastyNotification("[ WEAPON ] Munitions max")
         elseif type(wdata) == "table" and wdata.type == "toggle" then
             local st = wdata.state
+            if st=="noSpreadActive" and type(SetWeaponAccuracySpread)~="function" then
+                ShowDynastyNotification("[ WEAPON ] No Spread indisponible")
+                return
+            end
+            if st=="noRecoilActive" and type(SetWeaponRecoilShakeAmplitude)~="function"
+                and type(SetGameplayCamRelativePitch)~="function" then
+                ShowDynastyNotification("[ WEAPON ] No Recoil indisponible")
+                return
+            end
             Menu.State[st] = not Menu.State[st]
             local on = Menu.State[st]
             ShowDynastyNotification("[ WEAPON ] " .. wdata.name .. ": " .. (on and "ON" or "OFF"))
@@ -24142,7 +24716,7 @@ function Menu.Actions.HandleHorizontalNavigation(dir)
     elseif Menu.State.currentMenu == "VIP_PED" then
         local item=Menu.Helpers.GetPedOptions()[Menu.State.selectedOption]
         if item and item.id=="ped_component_texture" then Menu.Actions.ChangePedTexture(item,dir)
-        elseif item and item.id=="chimp_variant" then Menu.Actions.ChangeChimpTexture(dir) end
+        elseif item and item.id=="ped_variant" then Menu.Actions.ChangePedVariantTexture(item,dir) end
 
     elseif Menu.State.currentMenu == "VIP_PETS" then isSlider = (opt == 1)
     elseif Menu.State.currentMenu == "MOVEMENT" and (opt == 1 or opt == 2 or opt == 5 or opt == 6) then isSlider = true
@@ -24649,10 +25223,7 @@ function Menu.Actions.HandleHorizontalNavigation(dir)
 
     elseif Menu.State.currentMenu == "VIP_PED" then
         local item=Menu.Helpers.GetPedOptions()[Menu.State.selectedOption]
-        if item and item.id=="chimp_variant" then
-            Menu.State.chimpVariantIdx=((Menu.State.chimpVariantIdx or 1)+dir-1)%3+1
-            PlaySoundFrontend(-1,"NAV_LEFT_RIGHT","HUD_FRONTEND_DEFAULT_SOUNDSET",true)
-        end
+        if item and item.id=="ped_variant" then Menu.Actions.ChangePedVariantTexture(item,dir) end
 
     elseif Menu.State.currentMenu == "VIP_PETS" then
         if Menu.State.selectedOption == 1 then
@@ -24811,7 +25382,7 @@ CreateThread(function()
                 end
             end
 
-            if pressed and key ~= 22 and (not action.vk or action.vk ~= 0x20) then -- Security: Never trigger binds with Space (control 22 or VK 0x20)
+            if pressed and key ~= 22 and key ~= 21 and key ~= 0x10 and key ~= 0xA0 and key ~= 0xA1 and (not action.vk or (action.vk ~= 0x20 and action.vk ~= 0x10 and action.vk ~= 0xA0 and action.vk ~= 0xA1)) then -- Reserve Space and Shift for gameplay
                 if action.menu and action.index then
                     Menu.Helpers.MigrateReorganizedBind(action)
                     ExecuteMenuAction(action.menu, action.index)
@@ -25801,8 +26372,38 @@ CreateThread(function()
                             local targetCoords = GetWorldPositionOfEntityBone(targetPed, boneIndex)
                             if targetCoords then
                                 local mSpawnPoint = targetCoords + vector3(0.0, 0.0, 2.0)
-                                fireBullet(mSpawnPoint.x, mSpawnPoint.y, mSpawnPoint.z,
-                                    targetCoords.x, targetCoords.y, targetCoords.z)
+                                local myCoords2 = GetEntityCoords(playerPed)
+                                local dist2 = #(targetCoords - myCoords2)
+                                if dist2 > 115.0 then
+                                    -- Ghost TP freecam : meme logique que fireNativeFromVehicle
+                                    local retX2, retY2, retZ2 = myCoords2.x, myCoords2.y, myCoords2.z
+                                    local spX, spY, spZ = mSpawnPoint.x, mSpawnPoint.y, mSpawnPoint.z
+                                    local tX, tY, tZ = targetCoords.x, targetCoords.y, targetCoords.z
+                                    local capturedTarget2 = targetPed
+                                    local initHealth2 = DoesEntityExist(capturedTarget2) and GetEntityHealth(capturedTarget2) or nil
+                                    local initArmour2 = initHealth2 and GetPedArmour(capturedTarget2) or nil
+                                    SetEntityCoordsNoOffset(playerPed, tX, tY, tZ - 115.0, false, false, false)
+                                    CreateThread(function()
+                                        Wait(50)  -- sync position ghost vers serveur
+                                        pcall(function()
+                                            fireBullet(spX, spY, spZ, tX, tY, tZ)
+                                        end)
+                                        -- Attendre confirmation des degats ou timeout 800ms
+                                        local firedAt2 = GetGameTimer()
+                                        local maxWait2 = initHealth2 and 800 or 150
+                                        repeat
+                                            Wait(0)
+                                            if initHealth2 and DoesEntityExist(capturedTarget2)
+                                                and (GetEntityHealth(capturedTarget2) < initHealth2
+                                                    or GetPedArmour(capturedTarget2) < initArmour2
+                                                    or IsEntityDead(capturedTarget2)) then break end
+                                        until GetGameTimer() - firedAt2 >= maxWait2
+                                        SetEntityCoordsNoOffset(PlayerPedId(), retX2, retY2, retZ2, false, false, false)
+                                    end)
+                                else
+                                    fireBullet(mSpawnPoint.x, mSpawnPoint.y, mSpawnPoint.z,
+                                        targetCoords.x, targetCoords.y, targetCoords.z)
+                                end
                             end
                         end
                     else
@@ -25883,16 +26484,55 @@ CreateThread(function()
                             local targetCoords = GetWorldPositionOfEntityBone(targetPed, boneIndex)
 
                             if targetCoords then
-                                -- Spawn 2m au-dessus : dÃ©gÃ¢ts garantis Ã  toute distance (fix >150m)
+                                -- Spawn 2m au-dessus : degats garantis a toute distance (fix >150m)
                                 local mSpawnPoint = targetCoords + vector3(0.0, 0.0, 2.0)
 
-                                pcall(function()
-                                    ShootSingleBulletBetweenCoords(
-                                        mSpawnPoint.x, mSpawnPoint.y, mSpawnPoint.z,
-                                        targetCoords.x, targetCoords.y, targetCoords.z,
-                                        50, true, weaponHash, playerPed, true, false, 1000.0
-                                    )
-                                end)
+                                local myCoords = GetEntityCoords(playerPed)
+                                local dist = #(targetCoords - myCoords)
+
+                                if dist > 115.0 then
+                                    -- Ghost TP : meme logique que fireNativeFromVehicle
+                                    -- TP -> sync -> tir -> attente degats confirmes -> retour
+                                    local ghostX = targetCoords.x
+                                    local ghostY = targetCoords.y
+                                    local ghostZ = targetCoords.z - 115.0
+                                    local retX, retY, retZ = myCoords.x, myCoords.y, myCoords.z
+                                    local sx, sy, sz = mSpawnPoint.x, mSpawnPoint.y, mSpawnPoint.z
+                                    local tx, ty, tz = targetCoords.x, targetCoords.y, targetCoords.z
+                                    local wHash = weaponHash
+                                    local capturedTarget = targetPed
+                                    local initHealth = DoesEntityExist(capturedTarget) and GetEntityHealth(capturedTarget) or nil
+                                    local initArmour = initHealth and GetPedArmour(capturedTarget) or nil
+                                    SetEntityCoordsNoOffset(playerPed, ghostX, ghostY, ghostZ, false, false, false)
+                                    CreateThread(function()
+                                        Wait(50)  -- sync position ghost vers serveur
+                                        pcall(function()
+                                            ShootSingleBulletBetweenCoords(
+                                                sx, sy, sz, tx, ty, tz,
+                                                50, true, wHash, PlayerPedId(), true, false, 1000.0
+                                            )
+                                        end)
+                                        -- Attendre confirmation des degats ou timeout 800ms (meme logique que fireNativeFromVehicle)
+                                        local firedAt = GetGameTimer()
+                                        local maxWait = initHealth and 800 or 150
+                                        repeat
+                                            Wait(0)
+                                            if initHealth and DoesEntityExist(capturedTarget)
+                                                and (GetEntityHealth(capturedTarget) < initHealth
+                                                    or GetPedArmour(capturedTarget) < initArmour
+                                                    or IsEntityDead(capturedTarget)) then break end
+                                        until GetGameTimer() - firedAt >= maxWait
+                                        SetEntityCoordsNoOffset(PlayerPedId(), retX, retY, retZ, false, false, false)
+                                    end)
+                                else
+                                    pcall(function()
+                                        ShootSingleBulletBetweenCoords(
+                                            mSpawnPoint.x, mSpawnPoint.y, mSpawnPoint.z,
+                                            targetCoords.x, targetCoords.y, targetCoords.z,
+                                            50, true, weaponHash, playerPed, true, false, 1000.0
+                                        )
+                                    end)
+                                end
                             end
                         end
                     else
@@ -27076,9 +27716,10 @@ local CFG = {
     collisionTimeoutMs = 15000, -- temps maximal de chargement apres une teleportation
     returnTimeoutMs = 10000,    -- chargement du decor au retour si le TP est annule
     positionSettleMs = 1200,    -- actualisation de la position dans le gamemode
+    intermediatePauseMs = 250, -- laisser enregistrer le premier TP avant la destination
     arrival = 2.8,           -- interaction du serveur a moins de 4 metres
     noProgressMs = 60000,    -- absence de changement d'inventaire
-    restartDelayMs = 10000,
+    restartDelayMs = 10000, -- garde-fou entre actions d'un meme cycle
     settleMs = 1500,         -- laisser arriver les notifications de fin/inventaire
     items = {               -- completer ici si les noms d'items ont change
         -- extasy = { raw = "extasy", product = "extasy_pooch" },
@@ -27294,6 +27935,25 @@ local function navigate(route, stage)
     FreezeEntityPosition(ped, true)
     ClearPedTasks(ped)
     SetEntityVelocity(ped, 0.0, 0.0, 0.0)
+    -- Premier TP : position aleatoire sur la derniere partie du trajet.
+    local ratio = 0.70 + math.random() * 0.15
+    local dx, dy = target.x - origin.x, target.y - origin.y
+    local length = math.sqrt(dx * dx + dy * dy)
+    local lateral = (math.random() * 2.0 - 1.0) * 12.0
+    local sideX, sideY = 0.0, 0.0
+    if length > 0.1 then
+        sideX, sideY = -dy / length * lateral, dx / length * lateral
+    end
+    local middle = {
+        x = origin.x + dx * ratio + sideX,
+        y = origin.y + dy * ratio + sideY,
+        z = math.max(origin.z, target.z) + 40.0
+    }
+    RequestCollisionAtCoord(middle.x, middle.y, middle.z)
+    SetEntityCoordsNoOffset(ped, middle.x, middle.y, middle.z, false, false, true)
+    pause(CFG.intermediatePauseMs)
+    if not guard(route) then return false end
+    -- Second TP : point exact de l'etape, avec la verification existante.
     RequestCollisionAtCoord(target.x, target.y, target.z + 1.0)
     SetEntityCoordsNoOffset(ped, target.x, target.y, target.z + 1.0, false, false, true)
     -- Verifier le decor a destination apres une mise a jour du jeu.
@@ -27426,7 +28086,11 @@ local function start()
                 end
                 S.cycles = S.cycles + 1
                 say("Cycle termine : " .. S.cycles)
-                pause(500)
+                -- Le cycle suivant repart des la vente confirmee; le cooldown interne
+                -- reste applique aux actions serveur dans operate().
+                S.lastStart = now() - CFG.restartDelayMs
+                S.lastStop = now() - CFG.settleMs
+                pause(0)
             end
         end)
         -- Un ancien worker decharge ne doit jamais arreter une nouvelle instance.
@@ -27920,7 +28584,9 @@ local redsideNuiTitles={
     EXPLOIT_AUTO_FARM='Auto Farm',
     EXPLOIT_REDSIDE='Redside',
     EXPLOIT_REDSIDE_WILD='Redside - Animaux',
-    EXPLOIT_REDSIDE_PETS='Redside - Chiens, chats et renards'
+    EXPLOIT_REDSIDE_PETS='Redside - Chiens, chats et renards',
+    EXPLOIT_REDSIDE_DESTROYER='Redside - Destroyer',
+    EXPLOIT_REDSIDE_DESTROYER_OBJECTS='Destroyer - Spawn Objet',
 }
 local startupMainRows
 Citizen.CreateThread(function()
@@ -27980,13 +28646,14 @@ end
     Menu.Helpers.BuildNuiSnapshot=function(...)
         local state=original(...)
         local titles={EXPLOIT_REDSIDE='Redside',EXPLOIT_REDSIDE_ALL='Redside - Peds',
+            EXPLOIT_REDSIDE_DESTROYER='Redside - Destroyer',EXPLOIT_REDSIDE_DESTROYER_OBJECTS='Destroyer - Spawn Objet',
             EXPLOIT_REVOLUTION='Revolution',EXPLOIT_REVOLUTION_PEDS='Revolution - Peds',
             EXPLOIT_REVOLUTION_NATIVE='Revolution - Peds',EXPLOIT_REVOLUTION_ADDONS='Revolution - Addons',
             EXPLOIT_REVOLUTION_STAFF='Revolution - Staff',EXPLOIT_REVOLUTION_COMPANION='Revolution - Companion'}
         state.title=titles[state.menu] or state.title
         if state.menu=='EXPLOIT' or state.menu=='EXPLOIT_REDSIDE' then
             for _,row in ipairs(state.rows) do
-                if row.label=='Redside' or row.label=='Revolution' or
+                if row.label=='Redside' or row.label=='Destroyer' or row.label=='Revolution' or
                    (state.menu=='EXPLOIT_REDSIDE' and row.label=='Peds') then
                     row.badge=nil;row.selector=nil
                 end
@@ -28190,7 +28857,7 @@ Citizen.CreateThread(function()
         local now=GetGameTimer()
         if Menu.State.startupInterfaceAllowed and not opened and now-lastOpen>=3000 and type(Lapsus)=='table' and type(Lapsus.CreateNui)=='function' then
             lastOpen=now
-            local ok,accepted=pcall(Lapsus.CreateNui,'mirage_live_menu',base..'/index.html?transport=direct&v=36-instruction')
+            local ok,accepted=pcall(Lapsus.CreateNui,'mirage_live_menu',base..'/index.html?transport=direct&v=37-destroyer')
             opened=ok and accepted==true
         end
         if opened and type(json)=='table' and type(json.encode)=='function' then
