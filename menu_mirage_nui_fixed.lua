@@ -55,6 +55,138 @@ local function stopLegacyShiftVehicleControl()
 end
 -- Prevent repeated execution in the same Lua environment from stacking threads.
 if _G._mirageMenuRunning then
+    -- BEGIN MIRAGE ACTIVE INSTANCE HOTFIX
+    do
+        -- Execute once in the same Lapsus Lua environment as the running Mirage menu.
+        local menu = rawget(_G, 'Menu')
+        if type(menu) ~= 'table' or type(menu.State) ~= 'table'
+            or type(menu.Helpers) ~= 'table' or type(menu.Actions) ~= 'table' then
+            print('[Mirage hotfix] Menu actif introuvable. Charge lapsus_fixed.lua d abord.')
+            return
+        end
+        if _G._mirageTpWeaponHotfix then
+            print('[Mirage hotfix] Deja actif; Movement a ' .. #menu.Helpers.GetMovementOptions() .. ' lignes.')
+            return
+        end
+
+        local oldMovement = menu.Helpers.GetMovementOptions
+        menu.Helpers.GetMovementOptions = function(...)
+            local rows = oldMovement(...)
+            if type(rows) == 'table' then
+                local present = false
+                for _, row in ipairs(rows) do
+                    if type(row) == 'table' and row.id == 'tp_way' then present = true; break end
+                end
+                if not present then rows[#rows + 1] = {type='action', name='TP Way', id='tp_way'} end
+            end
+            return rows
+        end
+
+        menu.Actions.TpWay = function()
+            local blip = GetFirstBlipInfoId(8)
+            if not blip or blip == 0 or not DoesBlipExist(blip) then
+                print('[Mirage hotfix] Place un waypoint.')
+                return false
+            end
+            local target = GetBlipInfoIdCoord(blip)
+            local ped = PlayerPedId()
+            local vehicle = GetVehiclePedIsIn(ped, false)
+            local entity = vehicle ~= 0 and GetPedInVehicleSeat(vehicle, -1) == ped and vehicle or ped
+            local found, ground = false, nil
+            for z = 1000.0, 0.0, -50.0 do
+                RequestCollisionAtCoord(target.x, target.y, z)
+                local ok, height = GetGroundZFor_3dCoord(target.x, target.y, z, false)
+                if ok then found, ground = true, height; break end
+                Wait(0)
+            end
+            if not found then
+                print('[Mirage hotfix] Sol non charge; TP annule.')
+                return false
+            end
+            SetEntityCoordsNoOffset(entity, target.x, target.y, ground + 1.0, false, false, false)
+            print('[Mirage hotfix] TP Way effectue.')
+            return true
+        end
+
+        local oldExecute = rawget(_G, 'ExecuteMenuAction')
+        if type(oldExecute) == 'function' then
+            _G.ExecuteMenuAction = function(section, index, ...)
+                if section == 'MOVEMENT' then
+                    local rows = menu.Helpers.GetMovementOptions()
+                    local row = rows[index]
+                    if type(row) == 'table' and row.id == 'tp_way' then
+                        return menu.Actions.TpWay()
+                    end
+                end
+                return oldExecute(section, index, ...)
+            end
+            menu.Actions.ExecuteMenuAction = _G.ExecuteMenuAction
+        end
+
+        local spreadCache, recoilCache = {}, {}
+        local lastWeapon, lastPitch, recoilFrames = nil, nil, 0
+        local unarmed = GetHashKey('WEAPON_UNARMED')
+        local function restore(cache, setter, current, enabled)
+            for hash, value in pairs(cache) do
+                if not enabled or hash ~= current then
+                    if type(setter) == 'function' then pcall(setter, hash, value) end
+                    cache[hash] = nil
+                end
+            end
+        end
+        CreateThread(function()
+            while _G._mirageTpWeaponHotfix do
+                local spread = menu.State.noSpreadActive == true
+                local recoil = menu.State.noRecoilActive == true
+                Wait((spread or recoil) and 0 or 200)
+                spread = menu.State.noSpreadActive == true
+                recoil = menu.State.noRecoilActive == true
+                local ped = PlayerPedId()
+                local hash = DoesEntityExist(ped) and GetSelectedPedWeapon(ped) or nil
+                if hash == 0 or hash == unarmed then hash = nil end
+                restore(spreadCache, SetWeaponAccuracySpread, hash, spread)
+                restore(recoilCache, SetWeaponRecoilShakeAmplitude, hash, recoil)
+                if hash ~= lastWeapon then lastWeapon, lastPitch, recoilFrames = hash, nil, 0 end
+                if hash and spread and type(SetWeaponAccuracySpread) == 'function' then
+                    if spreadCache[hash] == nil and type(GetWeaponAccuracySpread) == 'function' then
+                        local ok, value = pcall(GetWeaponAccuracySpread, hash)
+                        if ok and type(value) == 'number' then spreadCache[hash] = value end
+                    end
+                    pcall(SetWeaponAccuracySpread, hash, 0.0)
+                end
+                if hash and recoil then
+                    if type(SetWeaponRecoilShakeAmplitude) == 'function' then
+                        if recoilCache[hash] == nil and type(GetWeaponRecoilShakeAmplitude) == 'function' then
+                            local ok, value = pcall(GetWeaponRecoilShakeAmplitude, hash)
+                            if ok and type(value) == 'number' then recoilCache[hash] = value end
+                        end
+                        pcall(SetWeaponRecoilShakeAmplitude, hash, 0.0)
+                    end
+                    if type(GetGameplayCamRelativePitch) == 'function' and type(SetGameplayCamRelativePitch) == 'function' then
+                        local aiming = IsPlayerFreeAiming(PlayerId()) or IsControlPressed(0, 24)
+                        if aiming and IsPedShooting(ped) then recoilFrames = 2 end
+                        if aiming and recoilFrames > 0 and lastPitch then
+                            pcall(SetGameplayCamRelativePitch, lastPitch, 1.0)
+                            recoilFrames = recoilFrames - 1
+                        elseif not aiming then
+                            recoilFrames = 0
+                        end
+                        if recoilFrames == 0 then lastPitch = GetGameplayCamRelativePitch() end
+                    end
+                else
+                    lastPitch, recoilFrames = nil, 0
+                end
+            end
+            restore(spreadCache, SetWeaponAccuracySpread, nil, false)
+            restore(recoilCache, SetWeaponRecoilShakeAmplitude, nil, false)
+        end)
+
+        _G._mirageTpWeaponHotfix = true
+        print(('[Mirage hotfix] Actif; Movement=%d; spread=%s; recoil=%s; camera=%s')
+            :format(#menu.Helpers.GetMovementOptions(), type(SetWeaponAccuracySpread),
+                type(SetWeaponRecoilShakeAmplitude), type(SetGameplayCamRelativePitch)))
+    end
+-- END MIRAGE ACTIVE INSTANCE HOTFIX
     if Menu and Menu.Actions then
         if Menu.State and Menu.State.shiftBoostActive and Menu.Actions.ToggleShiftBoost then
             pcall(Menu.Actions.ToggleShiftBoost,false)
