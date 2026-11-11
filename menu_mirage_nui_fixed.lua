@@ -28219,8 +28219,10 @@ local function start()
                 local remainingRaw = count(route.raw)
                 if count(route.product) == 0 then error("Traitement sans produit fini reconnu.", 0) end
                 if not operate(route, "sell") then return end
+                -- Le brut non traite reste dans l'inventaire et sera repris au cycle suivant.
+                -- Ne pas arreter le worker apres une vente confirmee.
                 if remainingRaw > 0 then
-                    error("Produits vendus; il reste " .. remainingRaw .. " matieres premieres. Verifie les ingredients avant de relancer.", 0)
+                    say(("Vente terminee; %d brut restant pour le prochain cycle."):format(remainingRaw))
                 end
                 S.cycles = S.cycles + 1
                 say("Cycle termine : " .. S.cycles)
