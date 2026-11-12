@@ -278,7 +278,7 @@ if(direct){
 }else{
  const previews={
   MAIN:['Player','Online Menu','Combat','Weapon','Vehicle','Misc'].map((label,index)=>({label,index:index+1,submenu:true})),
-  MOVEMENT:['Noclip','Noclip Pose','Slide','Freecam','Freecam Info','TP Way'].map((label,index)=>({label,index:index+1,submenu:label==='Freecam'})),
+  MOVEMENT:['Noclip','Noclip Pose','Slide','TP Way','Freecam','Freecam','Layout','Freecam Info'].map((label,index)=>({label,index:index+1,kind:index===4?'separator':undefined,toggle:index===5||index===7})),
   WEAPON:['No Reload','Infinite Ammo','No Spread','No Recoil'].map((label,index)=>({label,index:index+1,toggle:true,active:false}))
  };
  const state={visible:true,menu:'MAIN',title:'Main',tabs:['Main','Exploit','Settings'],activeTab:1,rows:previews.MAIN,selected:1,start:1,maxDisplay:6,banner:'/assets/mirage-banner.png?v=19',scale:.83,position:1,sidebar:'left'};

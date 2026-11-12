@@ -73,11 +73,15 @@ if _G._mirageMenuRunning then
         menu.Helpers.GetMovementOptions = function(...)
             local rows = oldMovement(...)
             if type(rows) == 'table' then
-                local present = false
-                for _, row in ipairs(rows) do
-                    if type(row) == 'table' and row.id == 'tp_way' then present = true; break end
+                local existingIndex = nil
+                for position, row in ipairs(rows) do
+                    if type(row) == 'table' and row.id == 'tp_way' then existingIndex = position; break end
                 end
-                if not present then rows[#rows + 1] = {type='action', name='TP Way', id='tp_way'} end
+                if existingIndex and existingIndex ~= 4 then
+                    table.insert(rows, 4, table.remove(rows, existingIndex))
+                elseif not existingIndex then
+                    table.insert(rows, 4, {type='action', name='TP Way', id='tp_way'})
+                end
             end
             return rows
         end
@@ -118,7 +122,7 @@ if _G._mirageMenuRunning then
                         return menu.Actions.TpWay()
                     end
                 end
-                return oldExecute(section, index, ...)
+                return oldExecute(section, section == 'MOVEMENT' and index > 4 and index - 1 or index, ...)
             end
             menu.Actions.ExecuteMenuAction = _G.ExecuteMenuAction
         end
@@ -2214,8 +2218,8 @@ local function GetBindToggleState(menu, index)
     elseif menu == "MOVEMENT" then
         if index == 1 then return true, S.noclipActive
         elseif index == 3 then return true, S.slideActive
-        elseif index == 5 then return true, (_G.freecam_active or false)
-        elseif index == 7 then return true, (S.freecamInfoVisible ~= false)
+        elseif index == 6 then return true, (_G.freecam_active or false)
+        elseif index == 8 then return true, (S.freecamInfoVisible ~= false)
         end
     elseif menu == "MAIN" then
         return false,false
@@ -5072,11 +5076,11 @@ function Menu.Helpers.GetMovementOptions()
         { type = "selector", name = "Noclip Pose", id = "noclip_pose_sel",
           options = _poseNamesMove, valueIdx = poseIdx }, -- index 2
         "Slide",          -- index 3
-        { type = "separator", name = "Freecam" }, -- index 4
-        { type = "toggle_slider_freecam", name = "Freecam" }, -- index 5 : toggle + speed slider
-        "Layout", -- index 6
-        "Freecam Info",   -- index 7
-        {type="action", name="TP Way", id="tp_way"}, -- index 8
+        {type="action", name="TP Way", id="tp_way"}, -- index 4
+        { type = "separator", name = "Freecam" }, -- index 5
+        { type = "toggle_slider_freecam", name = "Freecam" }, -- index 6 : toggle + speed slider
+        "Layout", -- index 7
+        "Freecam Info",   -- index 8
     }
 end
 
@@ -23892,8 +23896,10 @@ function ExecuteMenuAction(menu, index, listOverride)
             ShowDynastyNotification("[ NOCLIP ] ← → pose")
         elseif index == 3 then
             Menu.Actions.ToggleSlide()
-        -- index 4 = separator "Freecam", skipped
-        elseif index == 5 then
+        elseif index == 4 then
+            Menu.Actions.TpWay()
+        -- index 5 = separator "Freecam", skipped
+        elseif index == 6 then
             if freecam_active then
                 StopFreecam()
                 ShowDynastyNotification("Freecam: OFF")
@@ -23902,17 +23908,15 @@ function ExecuteMenuAction(menu, index, listOverride)
                 ShowDynastyNotification("Freecam: ON")
                 Menu.State.menuOpen = false
             end
-        elseif index == 6 then
+        elseif index == 7 then
             -- Freecam Layout : Enter cycle aussi
             local count = #FREECAM_LAYOUTS
             _G.freecam_layout = ((_G.freecam_layout or 1) % count) + 1
             local layoutName = FREECAM_LAYOUTS[_G.freecam_layout].name
             ShowDynastyNotification("Layout: " .. layoutName)
-        elseif index == 7 then
+        elseif index == 8 then
             Menu.State.freecamInfoVisible = not (Menu.State.freecamInfoVisible ~= false)
             ShowDynastyNotification("Freecam Info: " .. (Menu.State.freecamInfoVisible and "ON (Visible)" or "OFF (Masque)"))
-        elseif index == 8 then
-            Menu.Actions.TpWay()
         end
 
     elseif menu == "COMBAT" then
@@ -24990,7 +24994,7 @@ function Menu.Actions.HandleHorizontalNavigation(dir)
           ShowDynastyNotification("[ NOCLIP ] Pose: " .. poseName .. activeStr)
           PlaySoundFrontend(-1, "NAV_LEFT_RIGHT", "HUD_FRONTEND_DEFAULT_SOUNDSET", true)
 
-    elseif Menu.State.currentMenu == "MOVEMENT" and Menu.State.selectedOption == 5 then
+    elseif Menu.State.currentMenu == "MOVEMENT" and Menu.State.selectedOption == 6 then
           -- Freecam Speed : toujours ajustable
           local _fcSpeeds = {0.1, 0.25, 0.5, 1.0, 2.0, 5.0}
           freeCamSpeedIdx = math.max(1, math.min(#_fcSpeeds, (freeCamSpeedIdx or 3) + dir))
@@ -24999,7 +25003,7 @@ function Menu.Actions.HandleHorizontalNavigation(dir)
           ShowDynastyNotification("Vitesse Freecam: " .. (_fcNames[freeCamSpeedIdx] or "1.0"))
           PlaySoundFrontend(-1, "NAV_LEFT_RIGHT", "HUD_FRONTEND_DEFAULT_SOUNDSET", true)
 
-    elseif Menu.State.currentMenu == "MOVEMENT" and Menu.State.selectedOption == 6 then
+    elseif Menu.State.currentMenu == "MOVEMENT" and Menu.State.selectedOption == 7 then
           -- Freecam Layout : gauche/droite cycle
           local count = #FREECAM_LAYOUTS
           _G.freecam_layout = ((_G.freecam_layout or 1) - 1 + dir + count) % count + 1
