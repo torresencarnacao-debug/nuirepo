@@ -276,4 +276,19 @@ body.layout-editing.dragging [data-drag-handle]{cursor:grabbing}
   <div class="car-color-wheel"><div class="car-color-core"></div><i class="car-color-hue-dot"></i><i class="car-color-shade-dot"></i></div>
   <div class="car-color-selected"><i class="car-color-swatch"></i><span id="carColorHex">#FF0000</span></div>
   <div class="car-color-actions"><button type="button">Choisir</button><button type="button">Annuler</button></div><footer class="car-color-help">Souris : teinte et nuance · ÉCHAP Annuler</footer>
-</section><section id="nuiBinding" class="binding-panel" hidden aria-label="Key binding"><header class="binding-header"><img src="/assets/mirage-crown-logo.png?v=21" alt="Mirage"><div><h1 id="bindingTitle">MIRAGE</h1><p id="bindingSubtitle">Choose the menu opening key</p></div><span class="binding-tag">KEYBIND</span></header><div class="binding-controls"><div class="binding-keybox"><span class="binding-key-label">KEY</span><span id="bindingKey">F12</span></div><div class="binding-done">Done ↵</div></div><footer id="bindingHelp">ENTER Confirm · ESC Keep F12</footer></section><div id="connectionStatus" class="connection-status">Open Mirage in Lapsus.</div><script src="/assets/en.js"></script><script src="/assets/layout.js"></script><script src="/assets/live.js?v=42-car-color-fresh"></script></body></html>
+</section><section id="nuiBinding" class="binding-panel" hidden aria-label="Key binding"><header class="binding-header"><img src="/assets/mirage-crown-logo.png?v=21" alt="Mirage"><div><h1 id="bindingTitle">MIRAGE</h1><p id="bindingSubtitle">Choose the menu opening key</p></div><span class="binding-tag">KEYBIND</span></header><div class="binding-controls"><div class="binding-keybox"><span class="binding-key-label">KEY</span><span id="bindingKey">F12</span></div><div class="binding-done">Done ↵</div></div><footer id="bindingHelp">ENTER Confirm · ESC Keep F12</footer></section><div id="connectionStatus" class="connection-status">Open Mirage in Lapsus.</div><script src="/assets/en.js"></script><script src="/assets/layout.js"></script><script src="/assets/live.js?v=43-car-color-inline"></script><script>
+window.addEventListener('message',function(event){
+  var packet=event.data;
+  if(typeof packet==='string'){try{packet=JSON.parse(packet)}catch(_){return}}
+  if(!packet||packet.channel!=='mirage-ui-v3'||packet.action!=='carColor'||!packet.value)return;
+  var panel=document.getElementById('nuiCarColor');
+  var w=Number(packet.value.screenW),h=Number(packet.value.screenH);
+  if(!(w>300))w=Math.max(window.innerWidth||0,document.documentElement.clientWidth||0);
+  if(!(h>200))h=Math.max(window.innerHeight||0,document.documentElement.clientHeight||0);
+  if(w>300&&h>200){
+    panel.style.setProperty('left',(w/2)+'px','important');
+    panel.style.setProperty('top',(h/2)+'px','important');
+    panel.dataset.screen=w+'x'+h;
+  }
+});
+</script></body></html>
