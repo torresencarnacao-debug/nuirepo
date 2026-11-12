@@ -244,6 +244,8 @@ const carColorPanel=document.getElementById('nuiCarColor');
 function drawCarColor(value){
  if(!value)return;carColorPanel.hidden=!value.active;if(!value.active)return;
  applyTheme(value.theme);
+ const screenW=Number(value.screenW)||innerWidth,screenH=Number(value.screenH)||innerHeight;
+ carColorPanel.style.left=(screenW/2)+'px';carColorPanel.style.top=(screenH/2)+'px';
  const h=((Number(value.h)||0)%360+360)%360,s=Math.max(0,Math.min(1,Number(value.s)||0)),v=Math.max(0,Math.min(1,Number(value.v)||0));
  const wheel=carColorPanel.querySelector('.car-color-wheel');wheel.style.setProperty('--car-hue',`hsl(${h} 100% 50%)`);
  const angle=(h-90)*Math.PI/180,dot=carColorPanel.querySelector('.car-color-hue-dot');
