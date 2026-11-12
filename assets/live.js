@@ -240,6 +240,19 @@ function drawGiveInput(value){
  document.getElementById('giveInputValue').textContent='WEAPON_'+suffix+(suffix?'│':'');
  document.getElementById('giveInputError').textContent=t(value.error||'');
 }
+const carColorPanel=document.getElementById('nuiCarColor');
+function drawCarColor(value){
+ if(!value)return;carColorPanel.hidden=!value.active;if(!value.active)return;
+ applyTheme(value.theme);
+ const h=((Number(value.h)||0)%360+360)%360,s=Math.max(0,Math.min(1,Number(value.s)||0)),v=Math.max(0,Math.min(1,Number(value.v)||0));
+ const wheel=carColorPanel.querySelector('.car-color-wheel');wheel.style.setProperty('--car-hue',`hsl(${h} 100% 50%)`);
+ const angle=(h-90)*Math.PI/180,dot=carColorPanel.querySelector('.car-color-hue-dot');
+ dot.style.left=`${76+67*Math.cos(angle)}px`;dot.style.top=`${76+67*Math.sin(angle)}px`;
+ const shade=carColorPanel.querySelector('.car-color-shade-dot');shade.style.left=`${76+(s-.5)*84}px`;shade.style.top=`${76+(.5-v)*84}px`;
+ const rgb=[value.r,value.g,value.b].map(x=>Math.max(0,Math.min(255,Number(x)||0)));
+ const hex='#'+rgb.map(x=>Math.round(x).toString(16).padStart(2,'0')).join('').toUpperCase();
+ carColorPanel.querySelector('.car-color-swatch').style.background=hex;document.getElementById('carColorHex').textContent=hex;
+}
 const configPanel=document.getElementById('nuiConfigInput');
 function drawConfigInput(value){
  if(!value)return;
@@ -271,10 +284,11 @@ window.addEventListener('message',event=>{
  else if(packet.action==='binding')drawBinding(packet.value);
  else if(packet.action==='giveInput')drawGiveInput(packet.value);
  else if(packet.action==='configInput')drawConfigInput(packet.value);
+ else if(packet.action==='carColor')drawCarColor(packet.value);
 });
 const direct=new URLSearchParams(location.search).get('transport')==='direct';
 if(direct){
- setInterval(()=>{if(Date.now()-lastMessage>1800){if(frame){cancelAnimationFrame(frame);frame=0}pending=null;menu.style.display='none';hideWidgets();authPanel.hidden=true;loadingPanel.hidden=true;bindingPanel.hidden=true;givePanel.hidden=true;configPanel.hidden=true;notice.hidden=false;notice.textContent='Waiting for Lapsus.SendNuiMessage. Make sure the updated Lua script is running.'}},500);
+ setInterval(()=>{if(Date.now()-lastMessage>1800){if(frame){cancelAnimationFrame(frame);frame=0}pending=null;menu.style.display='none';hideWidgets();authPanel.hidden=true;loadingPanel.hidden=true;bindingPanel.hidden=true;givePanel.hidden=true;configPanel.hidden=true;carColorPanel.hidden=true;notice.hidden=false;notice.textContent='Waiting for Lapsus.SendNuiMessage. Make sure the updated Lua script is running.'}},500);
 }else{
  const previews={
   MAIN:['Player','Online Menu','Combat','Weapon','Vehicle','Misc'].map((label,index)=>({label,index:index+1,submenu:true})),
