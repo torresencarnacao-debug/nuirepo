@@ -294,6 +294,7 @@ if(direct){
 }else{
  const previews={
   MAIN:['Player','Online Menu','Combat','Weapon','Vehicle','Misc'].map((label,index)=>({label,index:index+1,submenu:true})),
+  PLAYER:['Full God Mode','Semi God Mode','Solo Session','Ghost','Tiny Player','MIRAGE PEWPEW'].map((label,index)=>({label,index:index+1,toggle:index===3||index===4,selector:index===2||index===5})),
   MOVEMENT:['Noclip','Noclip Pose','Slide','TP Way','Freecam','Freecam','Layout','Freecam Info'].map((label,index)=>({label,index:index+1,kind:index===4?'separator':undefined,toggle:index===5||index===7})),
   WEAPON:['No Reload','Infinite Ammo','No Spread','No Recoil'].map((label,index)=>({label,index:index+1,toggle:true,active:false}))
  };
@@ -301,8 +302,8 @@ if(direct){
  consume({connected:true,state});notice.hidden=false;notice.textContent='Local preview. In Lapsus, updates arrive directly through SendNuiMessage.';
  widgets({enabled:true,bindsVisible:true,binds:[{key:'H',label:'Solo Session',toggle:true,active:true}],spectatorsVisible:true,spectators:[]});
  window.addEventListener('keydown',event=>{
-  if(event.key==='1'||event.key==='2'||event.key==='3'){
-   const next=event.key==='1'?'MAIN':event.key==='2'?'MOVEMENT':'WEAPON';
+  if(event.key==='1'||event.key==='2'||event.key==='3'||event.key==='4'){
+   const next=event.key==='1'?'MAIN':event.key==='2'?'PLAYER':event.key==='3'?'MOVEMENT':'WEAPON';
    state.menu=next;state.title=titles[next];state.rows=previews[next];state.selected=1;consume({connected:true,state});return;
   }
   if(event.key==='ArrowDown'||event.key==='ArrowUp'){event.preventDefault();state.selected=(state.selected-1+(event.key==='ArrowDown'?1:-1)+state.rows.length)%state.rows.length+1;consume({connected:true,state})}
