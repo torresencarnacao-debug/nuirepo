@@ -11,6 +11,7 @@ COPY index-v52.html .
 COPY index-v53.html .
 COPY index-v54.html .
 COPY index-v55.html .
+COPY index-v56.html .
 COPY assets ./assets
 COPY menu_mirage_nui_fixed.lua .
 CMD ["sh", "-c", "exec python -m http.server ${PORT:-8080} --bind 0.0.0.0"]
