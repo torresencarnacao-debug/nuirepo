@@ -3,6 +3,7 @@
 const t=value=>window.MirageEnglish?window.MirageEnglish(value):String(value??'');
 const viewer=new URLSearchParams(location.search).get('viewer')==='nui'?'nui':'preview';
 const menu=document.querySelector('.menu'),list=document.getElementById('mainOptions'),tabs=document.querySelector('.tabs'),notice=document.getElementById('connectionStatus');
+try{const savedFont=localStorage.getItem('mirage-font-family');if(savedFont)document.documentElement.style.setProperty('--menu-font',savedFont)}catch(_error){}
 const image=document.getElementById('bannerImage'),video=document.getElementById('bannerVideo'),bannerFrame=document.getElementById('bannerFrame'),imageError=document.getElementById('bannerError');
 imageError.innerHTML='Banner unavailable<span>The banner URL is not responding.</span>';
 image.onerror=()=>{image.hidden=true;imageError.hidden=false};image.onload=()=>{image.hidden=false;imageError.hidden=true};
@@ -20,6 +21,7 @@ function draw(state){
  menu.dataset.border=!border.enabled?'off':Number(border.style)===1?'simple':Number(border.style)===2?'glow':'animated';
  menu.dataset.selection=Number(state.selectionStyle)===2?'new':'old';
  document.documentElement.style.setProperty('--menu-font',["Arial, Helvetica, sans-serif","\"Segoe UI\", Arial, sans-serif","\"Trebuchet MS\", Arial, sans-serif","Georgia, serif","Consolas, monospace","Orbitron, Arial, sans-serif","Audiowide, Arial, sans-serif","Oxanium, Arial, sans-serif","\"Chakra Petch\", Arial, sans-serif","\"Exo 2\", Arial, sans-serif","Teko, Arial, sans-serif","\"Titillium Web\", Arial, sans-serif","Syne, Arial, sans-serif","Unbounded, Arial, sans-serif","Cinzel, Georgia, serif","\"Cormorant Garamond\", Georgia, serif","\"Space Mono\", monospace","\"IBM Plex Mono\", monospace","Lexend, Arial, sans-serif"][Math.max(0,Math.min(18,(Number(state.fontStyle)||1)-1))]);
+ try{localStorage.setItem('mirage-font-family',document.documentElement.style.getPropertyValue('--menu-font'))}catch(_error){}
  const visible=state.visible&&configPanel.hidden;
  menu.style.display=visible?'block':'none';notice.hidden=true;
  if(!visible){if(bannerPlaying&&!bannerFrame.hidden)bannerFrame.contentWindow?.postMessage('mirage:pause','*');bannerPlaying=false;return;}
